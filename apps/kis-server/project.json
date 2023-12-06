@@ -1,0 +1,56 @@
+{
+  "name": "kis-server",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/kis-server/src",
+  "projectType": "application",
+  "targets": {
+    "build": {
+      "executor": "@nx/webpack:webpack",
+      "outputs": ["{options.outputPath}"],
+      "defaultConfiguration": "production",
+      "options": {
+        "target": "node",
+        "compiler": "tsc",
+        "outputPath": "dist/apps/kis-server",
+        "main": "apps/kis-server/src/main.ts",
+        "tsConfig": "apps/kis-server/tsconfig.app.json",
+        "assets": ["apps/kis-server/src/assets"],
+        "isolatedConfig": true,
+        "webpackConfig": "apps/kis-server/webpack.config.js"
+      },
+      "configurations": {
+        "development": {},
+        "production": {
+          "generateLockfile": true
+        }
+      }
+    },
+    "serve": {
+      "executor": "@nx/js:node",
+      "defaultConfiguration": "development",
+      "options": {
+        "buildTarget": "kis-server:build"
+      },
+      "configurations": {
+        "development": {
+          "buildTarget": "kis-server:build:development"
+        },
+        "production": {
+          "buildTarget": "kis-server:build:production"
+        }
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "outputs": ["{options.outputFile}"],
+      "options": {
+        "lintFilePatterns": ["apps/kis-server/**/*.ts"]
+      }
+    },
+    "docker-build": {
+      "dependsOn": ["build"],
+      "command": "docker build -f apps/kis-server/Dockerfile . -t kis-server"
+    }
+  },
+  "tags": []
+}

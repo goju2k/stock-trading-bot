@@ -50,12 +50,15 @@ const defaultRequest:Omit<RequestVolumeRank, keyof VolumeRankInput> = {
   FID_INPUT_DATE_1: '',
 };
 
-export function VolumeRank(request:VolumeRankInput) {
-  return KisApiInstance.get<RequestVolumeRank, KisResponse<ResponseVolumeRank>>(
+export async function VolumeRank(request:VolumeRankInput) {
+  const { data } = await KisApiInstance.get<KisResponse<ResponseVolumeRank[]>>(
     'quotations/volume-rank',
     {
+      responseType: 'json',
       params: { ...defaultRequest, ...request },
       headers: { tr_id: 'FHPST01710000' },
     },
   );
+
+  return data;
 }
