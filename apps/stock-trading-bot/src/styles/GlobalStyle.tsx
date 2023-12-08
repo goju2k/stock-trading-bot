@@ -1,5 +1,7 @@
 import { createGlobalStyle } from 'styled-components';
 
+import { GridCss } from './GridStyle';
+
 export const GlobalStyleV1 = createGlobalStyle`
 
   @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css");
@@ -17,4 +19,8 @@ export const GlobalStyleV1 = createGlobalStyle`
     font-weight: 400;
     line-height: 156%;
   }
+
+  // Grid
+  ${GridCss}
+
 `;
