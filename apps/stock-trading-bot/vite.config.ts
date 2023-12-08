@@ -12,7 +12,6 @@ export default defineConfig({
   },
 
   base: './',
-  build: { minify: false },
 
   preview: {
     port: 4300,
