@@ -1,5 +1,5 @@
-import { KisApiInstance } from '../axios-instance';
-import { KisResponse } from '../types/common';
+import { KisApi } from '../axios-instance';
+import { KisRequest, KisResponse } from '../types/common';
 
 export interface RequestVolumeRank {
   FID_COND_MRKT_DIV_CODE:string;
@@ -50,15 +50,14 @@ const defaultRequest:Omit<RequestVolumeRank, keyof VolumeRankInput> = {
   FID_INPUT_DATE_1: '',
 };
 
-export async function VolumeRank(request:VolumeRankInput) {
-  const { data } = await KisApiInstance.get<KisResponse<ResponseVolumeRank[]>>(
+export async function VolumeRank({ params }:KisRequest<VolumeRankInput, void>) {
+  const res = await KisApi.instance.get<KisResponse<ResponseVolumeRank[]>>(
     'quotations/volume-rank',
     {
       responseType: 'json',
-      params: { ...defaultRequest, ...request },
+      params: { ...defaultRequest, ...params },
       headers: { tr_id: 'FHPST01710000' },
     },
   );
-
-  return data;
+  return res?.data || { output: [] };
 }
