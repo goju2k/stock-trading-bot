@@ -1,18 +1,62 @@
 import axios from 'axios';
 
+const prevToken = window.localStorage.getItem('kis-token');
+
 const headers = {
   'content-type': 'application/json; charset=utf-8',
   appkey: import.meta.env.VITE_KIS_APP_KEY,
   appsecret: import.meta.env.VITE_KIS_APP_SECRET,
-  Authorization: `Bearer ${import.meta.env.VITE_KIS_AUTH_TOKEN}`,
+  Authorization: `Bearer ${prevToken}`,
   custtype: 'P',
 };
 
-console.log('headers', headers);
+// console.log('headers', headers);
 
-const kisAxiosInstance = axios.create({
-  baseURL: import.meta.env.VITE_KIS_HOST,
-  headers,
-});
+// refresh token
+const refreshToken = async () => {
+  const { data } = await instanceObject.instance.post(
+    'oauth2/tokenP',
+    {
+      grant_type: 'client_credentials',
+      appkey: headers.appkey,
+      appsecret: headers.appsecret,
+    },
+  );
+  headers.Authorization = `Bearer ${data.access_token}`;
+  window.localStorage.setItem('kis-token', data.access_token);
+  instanceObject.instance = createInstance();
+  console.log('token refreshed => ', data.access_token);
+};
 
-export const KisApiInstance = kisAxiosInstance;
+// createInstance
+const createInstance = () => {
+  const kisAxiosInstance = axios.create({
+    baseURL: import.meta.env.VITE_KIS_HOST,
+    headers,
+  });
+
+  const refreshErrorCodes = [
+    'EGW00121', // 유효하지 않은 token 입니다.
+    'EGW00123', // 기간이 만료된 token 입니다.
+  ];
+  kisAxiosInstance.interceptors.response.use(
+    (res) => res,
+    async (error) => {
+      const errCd = error?.response?.data?.msg_cd;
+      if (refreshErrorCodes.includes(errCd)) {
+        refreshToken();
+        return { rt_cd: 'nosession' };
+      }
+      return undefined;
+    },
+  );
+  return kisAxiosInstance;
+};
+
+const instanceObject = { instance: createInstance() };
+
+if (!prevToken) {
+  refreshToken();
+}
+
+export const KisApi = instanceObject;
