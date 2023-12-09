@@ -1,41 +1,64 @@
-import axios from 'axios';
-import cors from 'cors';
-import express from 'express';
+const axios = require('axios');
+const cors = require('cors');
+const express = require('express');
 
 const port = process.env.PORT ? Number(process.env.PORT) : 3000;
 
 const app = express();
 
 app.use(express.json());
-app.use(cors({ origin: 'http://localhost:4200' }));
+// app.use(cors({ origin: 'http://localhost:4200' }));
+app.use(cors());
+
+app.get('/health', (req, res) => {
+  res.send('ok');
+});
+
+const target = 'openapi.koreainvestment.com:9443';
 
 // Match all paths starting with "/api-proxy/"
 app.all('/api-proxy/*', async (req, res) => {
+  const authReq = req.url.endsWith('tokenP');
   const newPath = req.url.split('/').slice(2).join('/');
 
-  const newHeaders = {
-    appkey: req.headers.appkey,
-    appsecret: req.headers.appsecret,
-    tr_id: req.headers.tr_id,
-    custtype: req.headers.custtype,
-    authorization: req.headers.authorization,
-    host: 'openapi.koreainvestment.com:9443',
-  };
+  const newHeaders = authReq
+    ? { host: target }
+    : {
+      appkey: req.headers.appkey,
+      appsecret: req.headers.appsecret,
+      tr_id: req.headers.tr_id,
+      custtype: req.headers.custtype,
+      authorization: req.headers.authorization,
+      host: target,
+    };
 
-  console.log('newHeaders', newHeaders);
+  // console.log('newHeaders', newHeaders);
 
   try {
-    const response = await axios.get(
-      `https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/${newPath}`,
-      { headers: newHeaders },
-    );
-    res.json(response.data);
+    let response;
+    const method = req.method.toLowerCase();
+    const url = `https://${target}/${authReq ? newPath : `uapi/domestic-stock/v1/${newPath}`}`;
+    if (method === 'get') {
+      response = await axios.get(
+        url,
+        { headers: newHeaders },
+      );
+      res.json(response.data);
+    } else if (method === 'post') {
+      response = await axios.post(
+        url,
+        req.body,
+        { headers: newHeaders },
+      );
+      res.json(response.data);
+    } else {
+      res.status(500).json({ error: `Method ${req.method} not supported` });
+    }
   } catch (error) {
-    // console.log('error', error);
-    res.status(error.response.status || 500).json({ error: error.message });
+    res.status(error?.response?.status || 500).json(error?.response?.data || { error: error?.message || 'Unknown server error' });
   }
 });
 
 app.listen(port, () => {
-  console.log(`Proxy server listening at http://localhost:${port}`);
+  console.log(`[${new Date()}] Proxy server listening at http://localhost:${port}`);
 });
