@@ -1,18 +1,22 @@
 import { Main } from '@services/trading';
-import styled from 'styled-components';
-
-import { GlobalStyleV1 } from '../styles/GlobalStyle';
-
-const StyledApp = styled.div`
-  // Your style here
-`;
+import { AppContainer, GlobalStyleV1 } from '@shared/ui/design-system-v1';
+import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { RecoilRoot } from 'recoil';
 
 export function App() {
   return (
-    <StyledApp>
+    <>
       <GlobalStyleV1 />
-      <Main />
-    </StyledApp>
+      <RecoilRoot>
+        <AppContainer>
+          <BrowserRouter>
+            <Routes>
+              <Route path='/' element={<Main />} />
+            </Routes>
+          </BrowserRouter>
+        </AppContainer>
+      </RecoilRoot>
+    </>
   );
 }
 

@@ -5,10 +5,7 @@ export const GridCss = css`
 
     .mint-grid-header-item {
       background: #efefef;
-    }
-
-    .mint-grid-header-item:last-child {
-      border-right: white;
+      padding: 0px 5px;
     }
 
   }
@@ -19,6 +16,10 @@ export const GridCss = css`
 
   .mint-grid-target-row {
     background: #dff7df;
+  }
+
+  .mint-grid-column {
+    padding: 0px 5px;
   }
 
 `;

@@ -1,13 +1,11 @@
 import { Flex, Grid, GridHeader } from '@mint-ui/core';
 import { BusinessDay, ResponseVolumeRank, VolumeRank } from '@shared/apis/kis';
 import { useKisApi } from '@shared/hooks/api-hook';
+import { ContentBox, PageContainer, Section } from '@shared/ui/design-system-v1';
 import { DateUtil } from '@shared/utils/date';
 import { useEffect, useRef, useState } from 'react';
 
-import { ContentBox } from '../../components/ContentBox';
 import { MessageBox } from '../../components/MessageBox';
-import { PageContainer } from '../../components/PageContainer';
-import { Section } from '../../components/Section';
 
 export function Main() {
   // 메시지
@@ -94,7 +92,7 @@ export function Main() {
   const isOpen = businessDay ? businessDay[0].opnd_yn : undefined;
 
   return (
-    <PageContainer>
+    <PageContainer title='거래량 조회'>
       <ContentBox>
         <Section rowDirection flexAlign='center' flexSize='50px' justifyContent='space-between'>
           <Flex rowDirection flexAlign='center' flexGap='10px'>
@@ -110,12 +108,12 @@ export function Main() {
           <Flex>
             <Grid
               headers={[
-                { label: '순위', targetId: 'data_rank', width: 50, textAlign: 'center' },
-                { label: '종목', targetId: 'hts_kor_isnm', minWidth: 80, fontWeight: 700 },
-                { label: '현재가', targetId: 'stck_prpr', minWidth: 65, textAlign: 'right', textFormat: amountFormat },
-                { label: '전일대비', targetId: 'prdy_ctrt', minWidth: 80, textAlign: 'right', textFormat: percentFormat, color: amountRedBlue },
-                { label: '거래량', targetId: 'acml_vol', minWidth: 80, textAlign: 'right', textFormat: amountFormat },
-                { label: '증가율', targetId: 'vol_inrt', minWidth: 80, textAlign: 'right', textFormat: percentFormat },
+                { label: '순위', targetId: 'data_rank', width: 40, textAlign: 'center' },
+                { label: '종목', targetId: 'hts_kor_isnm', minWidth: 60, fontWeight: 700 },
+                { label: '현재가', targetId: 'stck_prpr', minWidth: 55, textAlign: 'right', textFormat: amountFormat },
+                { label: '등락율', targetId: 'prdy_ctrt', minWidth: 60, textAlign: 'right', textFormat: percentFormat, color: amountRedBlue },
+                { label: '거래량', targetId: 'acml_vol', minWidth: 65, textAlign: 'right', textFormat: amountFormat },
+                { label: '증가율', targetId: 'vol_inrt', minWidth: 68, textAlign: 'right', textFormat: percentFormat },
               ]}
               data={data || []}
               gridStyle={{ emptyText: 'No data', rowClassName: targetRowClassName }}

@@ -18,6 +18,9 @@
       "@services/trading": ["services/trading/src/index.ts"],
       "@shared/apis/kis": ["shared/apis/kis/src/index.ts"],
       "@shared/hooks/api-hook": ["shared/hooks/api-hook/src/index.ts"],
+      "@shared/ui/design-system-v1": [
+        "shared/ui/design-system-v1/src/index.ts"
+      ],
       "@shared/utils/date": ["shared/utils/date/src/index.ts"]
     }
   },
