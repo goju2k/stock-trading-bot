@@ -8,4 +8,6 @@ export default {
   },
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx'],
   coverageDirectory: '../../../coverage/shared/apis/kis',
+  automock: false,
+  setupFiles: ['./setupJestMock.js']
 };

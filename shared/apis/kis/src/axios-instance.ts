@@ -1,11 +1,13 @@
 import axios from 'axios';
 
+import EnvConstants from './env-constants';
+
 const prevToken = window.localStorage.getItem('kis-token');
 
 const headers = {
   'content-type': 'application/json; charset=utf-8',
-  appkey: import.meta.env.VITE_KIS_APP_KEY,
-  appsecret: import.meta.env.VITE_KIS_APP_SECRET,
+  appkey: EnvConstants.VITE_KIS_APP_KEY,
+  appsecret: EnvConstants.VITE_KIS_APP_SECRET,
   Authorization: `Bearer ${prevToken}`,
   custtype: 'P',
 };
@@ -31,7 +33,7 @@ const refreshToken = async () => {
 // createInstance
 const createInstance = () => {
   const kisAxiosInstance = axios.create({
-    baseURL: import.meta.env.VITE_KIS_HOST,
+    baseURL: EnvConstants.VITE_KIS_HOST,
     headers,
   });
 
