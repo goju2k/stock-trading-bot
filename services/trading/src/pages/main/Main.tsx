@@ -1,6 +1,7 @@
 import { Flex, Grid, GridHeader } from '@mint-ui/core';
-import { ResponseVolumeRank, VolumeRank } from '@shared/apis/kis';
+import { BusinessDay, ResponseVolumeRank, VolumeRank } from '@shared/apis/kis';
 import { useKisApi } from '@shared/hooks/api-hook';
+import { DateUtil } from '@shared/utils/date';
 import { useEffect, useRef, useState } from 'react';
 
 import { ContentBox } from '../../components/ContentBox';
@@ -11,6 +12,9 @@ import { Section } from '../../components/Section';
 export function Main() {
   // 메시지
   const [ message, setMessage ] = useState({ content: '' });
+
+  // 휴장일 조회
+  const [ businessDay ] = useKisApi(BusinessDay, { request: { params: { BASS_DT: DateUtil.getToday() } } });
 
   // 거래량 데이터
   const [ data, setData, refresh ] = useKisApi(VolumeRank, {
@@ -86,11 +90,17 @@ export function Main() {
     return undefined;
   }
 
+  // 개장 여부
+  const isOpen = businessDay ? businessDay[0].opnd_yn : undefined;
+
   return (
     <PageContainer>
       <ContentBox>
         <Section rowDirection flexAlign='center' flexSize='50px' justifyContent='space-between'>
-          <MessageBox message={message} clear={!auto} />
+          <Flex rowDirection flexAlign='center' flexGap='10px'>
+            <Flex flexSize='65px' flexAlign='center'>{isOpen === undefined ? '' : `개장일:${isOpen}`}</Flex>
+            <MessageBox message={message} clear={!auto} />
+          </Flex>
           <Flex rowDirection flexSize='140px' flexAlign='right-center' flexGap='5px'>
             <button onClick={handleAutoModeClick}>{`자동 ${auto ? 'ON' : 'OFF'}`}</button>
             <button disabled={auto} onClick={handleRefreshClick}>전송</button>
