@@ -1,6 +1,6 @@
-const axios = require('axios');
-const cors = require('cors');
-const express = require('express');
+import axios from 'axios';
+import cors from 'cors';
+import express from 'express';
 
 const port = process.env.PORT ? Number(process.env.PORT) : 3000;
 
@@ -33,7 +33,6 @@ app.all('/api-proxy/*', async (req, res) => {
     };
 
   // console.log('newHeaders', newHeaders);
-
   try {
     let response;
     const method = req.method.toLowerCase();

@@ -6,15 +6,19 @@
   "targets": {
     "build": {
       "executor": "@nx/webpack:webpack",
-      "outputs": ["{options.outputPath}"],
+      "outputs": [
+        "{options.outputPath}"
+      ],
       "defaultConfiguration": "production",
       "options": {
         "target": "node",
         "compiler": "tsc",
         "outputPath": "dist/apps/kis-server",
-        "main": "apps/kis-server/src/main.ts",
+        "main": "apps/kis-server/src/main.mjs",
         "tsConfig": "apps/kis-server/tsconfig.app.json",
-        "assets": ["apps/kis-server/src/assets"],
+        "assets": [
+          "apps/kis-server/src/assets"
+        ],
         "isolatedConfig": true,
         "webpackConfig": "apps/kis-server/webpack.config.js"
       },
@@ -42,13 +46,19 @@
     },
     "lint": {
       "executor": "@nx/eslint:lint",
-      "outputs": ["{options.outputFile}"],
+      "outputs": [
+        "{options.outputFile}"
+      ],
       "options": {
-        "lintFilePatterns": ["apps/kis-server/**/*.ts"]
+        "lintFilePatterns": [
+          "apps/kis-server/**/*.ts"
+        ]
       }
     },
     "docker-build": {
-      "dependsOn": ["build"],
+      "dependsOn": [
+        "build"
+      ],
       "command": "docker build -f apps/kis-server/Dockerfile . -t kis-server"
     }
   },
