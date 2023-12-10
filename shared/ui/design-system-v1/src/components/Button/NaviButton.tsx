@@ -19,10 +19,10 @@ export function NaviButton() {
 
 function Hamburger() {
   return (
-    <svg width={40} height={40} viewBox='0 0 100 100'>
-      <line x1='10' y1='20' x2='90' y2='20' stroke='black' />
-      <line x1='10' y1='50' x2='90' y2='50' stroke='black' />
-      <line x1='10' y1='80' x2='90' y2='80' stroke='black' />
+    <svg width={30} height={30} viewBox='0 0 100 100'>
+      <line x1='10' y1='20' x2='90' y2='20' stroke='black' strokeWidth='4px' />
+      <line x1='10' y1='50' x2='90' y2='50' stroke='black' strokeWidth='4px' />
+      <line x1='10' y1='80' x2='90' y2='80' stroke='black' strokeWidth='4px' />
     </svg>
   );
 }
