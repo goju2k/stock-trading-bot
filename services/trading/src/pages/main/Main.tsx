@@ -1,4 +1,4 @@
-import { Flex, Grid, GridHeader } from '@mint-ui/core';
+import { Button, Flex, Grid, GridHeader } from '@mint-ui/core';
 import { ResponseVolumeRank, VolumeRank } from '@shared/apis/kis';
 import { useKisApi } from '@shared/hooks/api-hook';
 import { ContentBox, PageContainer, Section } from '@shared/ui/design-system-v1';
@@ -96,8 +96,8 @@ export function Main() {
             <MessageBox message={message} clear={!auto} />
           </Flex>
           <Flex rowDirection flexSize='140px' flexAlign='right-center' flexGap='5px'>
-            <button onClick={handleAutoModeClick}>{`자동 ${auto ? 'ON' : 'OFF'}`}</button>
-            <button disabled={auto} onClick={handleRefreshClick}>전송</button>
+            <Button onClick={handleAutoModeClick}>{`자동 ${auto ? 'ON' : 'OFF'}`}</Button>
+            <Button disabled={auto} onClick={handleRefreshClick}>전송</Button>
           </Flex>
         </Section>
         <Section flexAlign='center'>

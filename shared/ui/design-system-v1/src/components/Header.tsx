@@ -1,3 +1,4 @@
+import { Text } from '@mint-ui/core';
 import { useRecoilValue } from 'recoil';
 
 import { FlexCenter, FlexLeft, FlexRight } from './Base/Flex';
@@ -9,7 +10,7 @@ export function Header() {
   return (
     <FlexLeft rowDirection flexSize='40px'>
       <FlexLeft flexSize='50px' />
-      <FlexCenter flexAlign='center'>{pageState.title}</FlexCenter>
+      <FlexCenter flexAlign='center'><Text text={pageState.title} size={20} weight={700} /></FlexCenter>
       <FlexRight flexSize='50px' />
     </FlexLeft>
   );

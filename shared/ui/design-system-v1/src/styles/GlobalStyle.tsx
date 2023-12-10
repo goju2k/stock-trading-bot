@@ -1,5 +1,6 @@
 import { createGlobalStyle } from 'styled-components';
 
+import { ButtonCss } from './ButtonStyle';
 import { GridCss } from './GridStyle';
 
 export const GlobalStyleV1 = createGlobalStyle`
@@ -12,7 +13,7 @@ export const GlobalStyleV1 = createGlobalStyle`
     margin: 0;
 
     // Typography
-    font-size: 16px;
+    font-size: 14px;
     color: #303132;
     font-family: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
     font-style: normal;
@@ -22,5 +23,8 @@ export const GlobalStyleV1 = createGlobalStyle`
 
   // Grid
   ${GridCss}
+
+  // Button
+  ${ButtonCss}
 
 `;
