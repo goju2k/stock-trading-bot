@@ -43,13 +43,15 @@ const createInstance = () => {
   ];
   kisAxiosInstance.interceptors.response.use(
     (res) => res,
-    async (error) => {
-      const errCd = error?.response?.data?.msg_cd;
-      if (refreshErrorCodes.includes(errCd)) {
-        refreshToken();
-        return { rt_cd: 'nosession' };
+    (error) => {
+      if (error?.response) {
+        const errCd = error.response.data?.msg_cd;
+        if (refreshErrorCodes.includes(errCd)) {
+          refreshToken();
+          error.response.data = { rt_cd: 'nosession' };
+        }
       }
-      return undefined;
+      return Promise.reject(error);
     },
   );
   return kisAxiosInstance;

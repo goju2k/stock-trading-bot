@@ -1,18 +1,18 @@
 import { Flex, Grid, GridHeader } from '@mint-ui/core';
-import { BusinessDay, ResponseVolumeRank, VolumeRank } from '@shared/apis/kis';
+import { ResponseVolumeRank, VolumeRank } from '@shared/apis/kis';
 import { useKisApi } from '@shared/hooks/api-hook';
 import { ContentBox, PageContainer, Section } from '@shared/ui/design-system-v1';
-import { DateUtil } from '@shared/utils/date';
 import { useEffect, useRef, useState } from 'react';
 
 import { MessageBox } from '../../components/MessageBox';
+import { useIsOpenDay } from '../../hooks/is-open-day-hook';
 
 export function Main() {
   // 메시지
   const [ message, setMessage ] = useState({ content: '' });
 
-  // 휴장일 조회
-  const [ businessDay ] = useKisApi(BusinessDay, { request: { params: { BASS_DT: DateUtil.getToday() } } });
+  // 개장 여부
+  const isOpen = useIsOpenDay();
 
   // 거래량 데이터
   const [ data, setData, refresh ] = useKisApi(VolumeRank, {
@@ -23,7 +23,6 @@ export function Main() {
         FID_VOL_CNT: 1000000,
       },
     },
-    retryWhenSessionOut: true,
     callback(response) {
       if (autoCount.current < 0) {
         setMessage({ content: response?.msg1 || '' });
@@ -87,9 +86,6 @@ export function Main() {
     }
     return undefined;
   }
-
-  // 개장 여부
-  const isOpen = businessDay ? businessDay[0].opnd_yn : undefined;
 
   return (
     <PageContainer title='거래량 조회'>

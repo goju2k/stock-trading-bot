@@ -15,19 +15,21 @@ export function useKisApi<T, B, R>(func:(request:KisRequest<T, B>)=>Promise<KisR
 
   useEffect(() => {
     func(option?.request || {}).then((data) => {
-      if (option?.retryWhenSessionOut && data?.rt_cd === 'nosession') {
+      setResult(data?.output);
+      option?.callback && option?.callback(data);
+    }).catch((error) => {
+      if (option?.retryWhenSessionOut !== false && error?.response?.data?.rt_cd === 'nosession') {
         if (retryCount.current > 5) {
           throw new Error(`Retry Count Exceeded ${retryCount}`);
         }
         retryCount.current += 1;
-        setRetrySwitch(!retrySwitch);
-      } else {
-        setResult(data?.output);
-        option?.callback && option?.callback(data);
+        setTimeout(() => setRetrySwitch(!retrySwitch), 500);
+        return Promise.resolve(error.response.data);
       }
-
-      retrySwitchRef.current = retrySwitch;
+      return Promise.reject(error);
     });
+
+    retrySwitchRef.current = retrySwitch;
   }, [ func, retrySwitch ]);
 
   const refresh = () => {
