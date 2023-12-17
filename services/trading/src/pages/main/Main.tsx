@@ -7,6 +7,8 @@ import { useEffect, useRef, useState } from 'react';
 import { MessageBox } from '../../components/MessageBox';
 import { useIsOpenDay } from '../../hooks/is-open-day-hook';
 
+const AMOUNT_REG_EXP = /\B(?<!\.\d*)(?=(\d{3})+(?!\d))/g;
+
 export function Main() {
   // 메시지
   const [ message, setMessage ] = useState({ content: '' });
@@ -66,7 +68,7 @@ export function Main() {
 
   // 그리드 포맷
   function amountFormat<T>(item:T, header:GridHeader<T>) {
-    return String(item[header.targetId]).replace(/\B(?<!\.\d*)(?=(\d{3})+(?!\d))/g, ',');
+    return String(item[header.targetId]).replace(AMOUNT_REG_EXP, ',');
   }
   function percentFormat<T>(item:T, header:GridHeader<T>) {
     return `${String(item[header.targetId])} %`;
@@ -97,7 +99,7 @@ export function Main() {
           </Flex>
           <Flex rowDirection flexSize='140px' flexAlign='right-center' flexGap='5px'>
             <Button onClick={handleAutoModeClick}>{`자동 ${auto ? 'ON' : 'OFF'}`}</Button>
-            <Button disabled={auto} onClick={handleRefreshClick}>전송</Button>
+            <Button disabled={auto} onClick={handleRefreshClick}>조회</Button>
           </Flex>
         </Section>
         <Section flexAlign='center'>

@@ -9,9 +9,12 @@ const NaviButtonContainer = styled(FlexCenter)`
   }
 `;
 
-export function NaviButton() {
+export interface NaviButtonProps {
+  click?:React.MouseEventHandler<HTMLDivElement>;
+}
+export function NaviButton({ click }:NaviButtonProps) {
   return (
-    <NaviButtonContainer>
+    <NaviButtonContainer onClick={click}>
       <Hamburger />
     </NaviButtonContainer>
   );

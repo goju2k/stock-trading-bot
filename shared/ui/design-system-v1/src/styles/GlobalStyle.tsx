@@ -21,6 +21,10 @@ export const GlobalStyleV1 = createGlobalStyle`
     line-height: 156%;
   }
 
+  a {
+    text-decoration: none;
+  }
+
   // Grid
   ${GridCss}
 
