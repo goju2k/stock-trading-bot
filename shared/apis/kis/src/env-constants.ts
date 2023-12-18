@@ -2,10 +2,12 @@ const {
   VITE_KIS_APP_KEY,
   VITE_KIS_APP_SECRET,
   VITE_KIS_HOST,
+  VITE_KIS_CANO,
 } = import.meta.env;
 
 export default {
   VITE_KIS_APP_KEY,
   VITE_KIS_APP_SECRET,
   VITE_KIS_HOST,
+  VITE_KIS_CANO,
 };

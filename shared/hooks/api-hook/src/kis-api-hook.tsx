@@ -34,7 +34,6 @@ export function useKisApi<T, B, R>(func:KisApiFunction<T, B, R>, option?:ApiOpti
       const key = JSON.stringify(option?.request);
       const cachedValue = cacheMap.get(key) as KisResponse<R> | undefined;
       if (cachedValue) {
-        console.log('cachedValue', cachedValue);
         setResult(cachedValue?.output);
         option?.callback && option?.callback(cachedValue);
 
