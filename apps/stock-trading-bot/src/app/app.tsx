@@ -1,6 +1,5 @@
 import { AdvanceOrder, LogCenter, Main } from '@services/trading';
-import { AppContainer, GlobalStyleV1 } from '@shared/ui/design-system-v1';
-import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { AppContainer, ComponentRoute, ComponentRoutes, GlobalStyleV1 } from '@shared/ui/design-system-v1';
 import { RecoilRoot } from 'recoil';
 
 export function App() {
@@ -9,13 +8,11 @@ export function App() {
       <GlobalStyleV1 />
       <RecoilRoot>
         <AppContainer>
-          <BrowserRouter>
-            <Routes>
-              <Route path='advance-order' element={<AdvanceOrder />} />
-              <Route path='log-center' element={<LogCenter />} />
-              <Route path='*' element={<Main />} />
-            </Routes>
-          </BrowserRouter>
+          <ComponentRoutes>
+            <ComponentRoute path='advance-order' component={<AdvanceOrder />} />
+            <ComponentRoute path='log-center' component={<LogCenter />} />
+            <ComponentRoute path='' component={<Main />} />
+          </ComponentRoutes>
         </AppContainer>
       </RecoilRoot>
     </>

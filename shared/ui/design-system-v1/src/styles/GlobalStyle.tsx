@@ -23,6 +23,12 @@ export const GlobalStyleV1 = createGlobalStyle`
 
   a {
     text-decoration: none;
+    &:hover{
+      cursor:pointer;
+    }
+    &:active {
+      background:lightgray;
+    }
   }
 
   // Grid
