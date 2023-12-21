@@ -1,6 +1,5 @@
 import { InquireBalance, OrderCache, ResponseInquireBalance } from '@shared/apis/kis';
-
-import { TradingStrategy } from './abstract/trading-strategy';
+import { TradingStrategy } from '@shared/states/global';
 
 import { removeOrderToday } from '../utils/local-store';
 

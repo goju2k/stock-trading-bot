@@ -1,5 +1,6 @@
 import { atom } from 'recoil';
-import { TradingStrategy } from 'services/trading/src/trading-strategy/abstract/trading-strategy';
+
+import { TradingStrategy } from './abstract/trading-strategy';
 
 export interface OrderListInterface {
   date:string;
