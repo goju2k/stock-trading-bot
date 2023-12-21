@@ -54,7 +54,6 @@ export async function VolumeRank({ params }:KisRequest<VolumeRankInput, void>) {
   const res = await KisApi.instance.get<KisResponse<ResponseVolumeRank[]>>(
     'quotations/volume-rank',
     {
-      responseType: 'json',
       params: { ...defaultRequest, ...params },
       headers: { tr_id: 'FHPST01710000' },
     },

@@ -27,7 +27,6 @@ export async function BusinessDay({ params }:KisRequest<BusinessDayInput, void>)
   const res = await KisApi.instance.get<KisResponse<ResponseBusinessDay[]>>(
     'quotations/chk-holiday',
     {
-      responseType: 'json',
       params: mixedParams,
       headers: { tr_id: 'CTCA0903R' },
     },

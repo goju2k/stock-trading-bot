@@ -18,14 +18,11 @@ export interface ResponseOrderCache {
   ORD_TMD: string;
 }
 
-export type OrderCacheInput = Pick<RequestOrderCache, 'PDNO'> & {BUY: boolean;};
+export type OrderCacheInput = Pick<RequestOrderCache, 'PDNO'|'ORD_QTY'|'ORD_UNPR'|'ORD_DVSN'> & {BUY: boolean;};
 
 const defaultRequest:Omit<RequestOrderCache, keyof OrderCacheInput> = {
   CANO: envConstants.VITE_KIS_CANO, // 계좌번호
   ACNT_PRDT_CD: '01', // 계좌상품코드
-  ORD_DVSN: '01', // 주문구분 01:시장가
-  ORD_QTY: '1', // 주문수량
-  ORD_UNPR: '0', // 주문금액
   ALGO_NO: '', // 공란
 };
 

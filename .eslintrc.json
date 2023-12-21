@@ -58,6 +58,8 @@
     "class-methods-use-this": "off",
     "comma-dangle": [ "error", "always-multiline" ],
     "eol-last": [ "error", "never" ],
+    "padded-blocks": "off",
+    "no-trailing-spaces":"off",
     "import/extensions": "off",
     "import/named": "off",
     "import/no-anonymous-default-export": "off",

@@ -35,7 +35,7 @@ export function Footer() {
         }}
         />
       </FlexRight>
-      <SidePanel sideWidth={230} open={sideOpen} />
+      <SidePanel sideWidth={250} open={sideOpen} />
     </FlexBetween>
   );
 }
