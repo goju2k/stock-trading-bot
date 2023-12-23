@@ -204,6 +204,14 @@ export function Main() {
     return per > 8 && inc > 100;
   }
   function targetRowClassName(item:ResponseVolumeRank) {
+    if (orderList.trading.filter((trad) => trad.code === item.mksc_shrn_iscd 
+    && trad.state !== 'done' 
+    && trad.state !== 'error').length > 0) {
+      return 'mint-grid-processing-row';
+    }
+    if (orderList.stocks.includes(item.mksc_shrn_iscd)) {
+      return 'mint-grid-ordered-row';
+    }
     return isTargetRow(item) ? 'mint-grid-target-row' : '';
   }
   function amountRedBlue(item:ResponseVolumeRank) {

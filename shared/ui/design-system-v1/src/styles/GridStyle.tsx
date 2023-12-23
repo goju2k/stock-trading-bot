@@ -18,6 +18,14 @@ export const GridCss = css`
     background: #dff7df;
   }
 
+  .mint-grid-ordered-row {
+    background: #ffe9e9;
+  }
+
+  .mint-grid-processing-row {
+    background: #c8effb;
+  }
+
   .mint-grid-column {
     padding: 0px 5px;
   }
