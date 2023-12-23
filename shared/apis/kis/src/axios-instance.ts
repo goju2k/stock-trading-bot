@@ -8,7 +8,7 @@ const headers = {
   'content-type': 'application/json; charset=utf-8',
   appkey: EnvConstants.VITE_KIS_APP_KEY,
   appsecret: EnvConstants.VITE_KIS_APP_SECRET,
-  Authorization: `Bearer ${prevToken}`,
+  Authorization: `Bearer ${EnvConstants.VITE_KIS_TOKEN || prevToken}`,
   custtype: 'P',
 };
 
@@ -59,7 +59,7 @@ const createInstance = () => {
 
 const instanceObject = { instance: createInstance() };
 
-if (!prevToken) {
+if (!EnvConstants.VITE_KIS_TOKEN && !prevToken) {
   refreshToken();
 }
 

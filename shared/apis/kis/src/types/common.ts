@@ -3,9 +3,17 @@ export interface KisRequest<T, B> {
   body?:B;
 }
 
-export interface KisResponse<T> {
+interface KisResponseBase {
   rt_cd:string;
   msg_cd:string;
   msg1:string;
-  output:T;
+}
+
+export interface KisResponse<OUTPUT> extends KisResponseBase {
+  output:OUTPUT;
+}
+
+export interface KisResponseMulti<OUTPUT1 = void, OUTPUT2 = void> extends KisResponseBase {
+  output1:OUTPUT1;
+  output2:OUTPUT2;
 }

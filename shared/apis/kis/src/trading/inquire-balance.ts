@@ -1,6 +1,6 @@
 import { KisApi } from '../axios-instance';
 import envConstants from '../env-constants';
-import { KisResponse } from '../types/common';
+import { KisResponseMulti } from '../types/common';
 
 export interface RequestInquireBalance {
   CANO:string; // 종합계좌번호 String Y 8 계좌번호 체계(8-2)의 앞 8자리
@@ -31,7 +31,7 @@ const defaultRequest:RequestInquireBalance = {
   ACNT_PRDT_CD: '01', // 계좌상품코드 String Y 2 계좌번호 체계(8-2)의 뒤 2자리
   AFHR_FLPR_YN: 'N', // 시간외단일가여부 String Y 1 N : 기본값
   OFL_YN: '', // 오프라인여부 String Y 1 공란(Default)
-  INQR_DVSN: '02', // 조회구분 String Y 2 01 : 대출일별 02 : 종목별
+  INQR_DVSN: '01', // 조회구분 String Y 2 01 : 대출일별 02 : 종목별
   UNPR_DVSN: '01', // 단가구분 String Y 2 01 : 기본값
   FUND_STTL_ICLD_YN: 'N', // 펀드결제분포함여부 String Y 1 N : 포함하지 않음
   FNCG_AMT_AUTO_RDPT_YN: 'N', // 융자금액자동상환여부 String Y 1 N : 기본값
@@ -41,7 +41,7 @@ const defaultRequest:RequestInquireBalance = {
 };
 
 export async function InquireBalance() {
-  const res = await KisApi.instance.get<KisResponse<ResponseInquireBalance[]>>(
+  const res = await KisApi.instance.get<KisResponseMulti<ResponseInquireBalance[]>>(
     'trading/inquire-balance',
     {
       params: defaultRequest,
