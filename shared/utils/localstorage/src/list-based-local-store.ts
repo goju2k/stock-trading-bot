@@ -1,4 +1,4 @@
-export class ListBasedLocalStore {
+export class ListBasedLocalStore<T> {
   
   key:string;
 
@@ -6,19 +6,19 @@ export class ListBasedLocalStore {
     this.key = key;
   }
   
-  includes(stock:string) {
+  includes(stock:T) {
     return this.get().includes(stock);
   }
 
   get() {
     const orderList = window.localStorage.getItem(this.key);
     if (orderList) {
-      return JSON.parse(orderList) as string[];
+      return JSON.parse(orderList) as T[];
     }
     return [];
   }
 
-  set(stock:string) {
+  set(stock:T) {
     const list = this.get();
     if (!list.includes(stock)) {
       list.push(stock);
@@ -26,7 +26,7 @@ export class ListBasedLocalStore {
     window.localStorage.setItem(this.key, JSON.stringify(list));
   }
 
-  setAll(stocks:string[]) {
+  setAll(stocks:T[]) {
     const list = this.get();
     stocks.forEach((stock) => {
       if (!list.includes(stock)) {

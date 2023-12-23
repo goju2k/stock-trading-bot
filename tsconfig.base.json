@@ -22,7 +22,8 @@
       "@shared/ui/design-system-v1": [
         "shared/ui/design-system-v1/src/index.ts"
       ],
-      "@shared/utils/date": ["shared/utils/date/src/index.ts"]
+      "@shared/utils/date": ["shared/utils/date/src/index.ts"],
+      "@shared/utils/localstorage": ["shared/utils/localstorage/src/index.ts"]
     }
   },
   "exclude": ["node_modules", "tmp"]

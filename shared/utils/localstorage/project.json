@@ -1,0 +1,39 @@
+{
+  "name": "localstorage",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "shared/utils/localstorage/src",
+  "projectType": "library",
+  "tags": [],
+  "targets": {
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "outputs": ["{options.outputFile}"],
+      "options": {
+        "lintFilePatterns": ["shared/utils/localstorage/**/*.{ts,tsx,js,jsx}"]
+      }
+    },
+    "build": {
+      "executor": "@nx/vite:build",
+      "outputs": ["{options.outputPath}"],
+      "defaultConfiguration": "production",
+      "options": {
+        "outputPath": "dist/shared/utils/localstorage"
+      },
+      "configurations": {
+        "development": {
+          "mode": "development"
+        },
+        "production": {
+          "mode": "production"
+        }
+      }
+    },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "options": {
+        "jestConfig": "shared/utils/localstorage/jest.config.ts"
+      }
+    }
+  }
+}

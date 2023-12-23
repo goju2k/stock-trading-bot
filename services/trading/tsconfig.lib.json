@@ -19,5 +19,5 @@
     "**/*.spec.jsx",
     "**/*.test.jsx"
   ],
-  "include": ["src/**/*.js", "src/**/*.jsx", "src/**/*.ts", "src/**/*.tsx", "../../shared/ui/design-system-v1/src/components/AppContainer.tsx", "../../shared/ui/design-system-v1/src/components/ContentBox.tsx", "../../shared/ui/design-system-v1/src/components/PageContainer.tsx", "../../shared/ui/design-system-v1/src/components/Section.tsx"]
+  "include": ["src/**/*.js", "src/**/*.jsx", "src/**/*.ts", "src/**/*.tsx", "../../shared/ui/design-system-v1/src/components/AppContainer.tsx", "../../shared/ui/design-system-v1/src/components/ContentBox.tsx", "../../shared/ui/design-system-v1/src/components/PageContainer.tsx", "../../shared/ui/design-system-v1/src/components/Section.tsx", "../../shared/utils/localstorage/src/list-based-local-store.ts", "../../shared/utils/localstorage/src/object-based-local-store.ts"]
 }
