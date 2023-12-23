@@ -1,11 +1,11 @@
 import { Button, Flex, Grid, GridHeader } from '@mint-ui/core';
 import { OrderCache, ResponseVolumeRank, VolumeRank } from '@shared/apis/kis';
 import { useKisApi } from '@shared/hooks/api-hook';
-import { OrderList } from '@shared/states/global';
+import { AppConfig, OrderList } from '@shared/states/global';
 import { ContentBox, PageContainer, Section } from '@shared/ui/design-system-v1';
 import { DateUtil } from '@shared/utils/date';
 import { useEffect, useRef, useState } from 'react';
-import { useRecoilState } from 'recoil';
+import { useRecoilState, useRecoilValue } from 'recoil';
 
 import { MessageBox } from '../../components/MessageBox';
 import { useIsOpenDay } from '../../hooks/is-open-day-hook';
@@ -17,6 +17,9 @@ const AMOUNT_REG_EXP = /\B(?<!\.\d*)(?=(\d{3})+(?!\d))/g;
 export function Main() {
   // 메시지
   const [ message, setMessage ] = useState({ content: '' });
+
+  // 앱 설정
+  const appConfig = useRecoilValue(AppConfig);
 
   // 개장 여부
   const { isOpen, checkOpenDay } = useIsOpenDay();
@@ -49,7 +52,14 @@ export function Main() {
         setMessage({ content: `자동조회중...${autoCount.current}` });
 
         const today = DateUtil.getToday();
-        if (isOpenRef.current === 'Y') {
+        const todayHHMi = DateUtil.getTodayHHMi();
+        
+        // 개장일이고 처리시간 내이면
+        if (isOpenRef.current === 'Y'
+        && appConfig.workingStart > todayHHMi 
+        && appConfig.workingEnd < todayHHMi
+        ) {
+
           const [ orderList, setOrderList ] = orderListRef.current;
           const newOrder = { ...orderList };
 
@@ -119,7 +129,7 @@ export function Main() {
                 setMessage({ content: msg });
 
                 // 매매전략 실행
-                newOrder.trading.push(new SellByPercent(target.mksc_shrn_iscd, 3, 4)); // 상위 3% 하위 -4% 매도 전략
+                newOrder.trading.push(new SellByPercent(target.mksc_shrn_iscd, appConfig.highPercentage, appConfig.lowPercentage)); // 상위 3% 하위 -4% 매도 전략
                 setOrderList({ ...newOrder });
 
               }
@@ -127,7 +137,11 @@ export function Main() {
           }
         } else {
           handleAutoModeClick();
-          setMessage({ content: '개장일이 아닙니다' });
+          setMessage({
+            content: isOpenRef.current !== 'Y' 
+              ? '개장일이 아닙니다' 
+              : `작업 가능시간이 아닙니다. (${appConfig.workingStart} ~ ${appConfig.workingEnd})`, 
+          });
         }
       }
     },
@@ -141,7 +155,7 @@ export function Main() {
     if (auto) {
       checkOpenDay(); // 개장일 다시 체크
       refresh();
-      interval.current = window.setInterval(refresh, 1000);
+      interval.current = window.setInterval(refresh, appConfig.refreshRate);
     }
     return () => {
       window.clearInterval(interval.current);
