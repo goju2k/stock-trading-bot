@@ -44,10 +44,12 @@ export function SidePanel({ open, sideWidth }:SidePanelProps) {
       <FlexCenter flexSize='50px'>
         <Text text='처리중인 주문' size={16} weight={700} />
       </FlexCenter>
-      <FlexLeft flexAlign='left-top' flexGap='5px'>
+      <FlexLeft flexAlign='left-top' flexGap='5px' flexSize='fit-content' flexHeight='fit-content'>
         {
           orderList.trading.length > 0 
-            ? orderList.trading.map((trad) => <FlexLeft key={`order-${trad.code}`}>{trad.toString()}</FlexLeft>)
+            ? orderList.trading.map((trad) => (
+              <Text key={`log-${trad.code}`} text={trad.toString()} size={14} weight={500} whiteSpace='pre-line' textWidth='100%' />
+            ))
             : <Text text='없음' size={14} weight={500} />
         }
       </FlexLeft>
