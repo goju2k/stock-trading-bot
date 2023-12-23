@@ -12,7 +12,7 @@
   },
   "private": true,
   "dependencies": {
-    "@mint-ui/core": "^0.18.0",
+    "@mint-ui/core": "^0.19.4",
     "@swc/helpers": "~0.5.2",
     "axios": "^1.6.2",
     "cors": "^2.8.5",
