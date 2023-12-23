@@ -29,7 +29,6 @@ export function AdvanceOrder() {
                 data={configState}
                 setData={setConfigState}
                 columnCountPerRow={1}
-                tableStyle={{ labelWidth: '200px' }}
               />
             </Flex>
             <Flex flexSize='120px'>
@@ -42,7 +41,6 @@ export function AdvanceOrder() {
                 data={configState}
                 setData={setConfigState}
                 columnCountPerRow={1}
-                tableStyle={{ labelWidth: '200px' }}
               />
             </Flex>
             <FlexRight flexSize='50px'>
