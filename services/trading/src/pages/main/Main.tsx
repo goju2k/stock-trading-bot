@@ -1,7 +1,7 @@
 import { Button, Flex, Grid, GridHeader, LineChart } from '@mint-ui/core';
 import { OrderCache, ResponseVolumeRank, VolumeRank } from '@shared/apis/kis';
 import { useKisApi } from '@shared/hooks/api-hook';
-import { AppConfig, OrderList } from '@shared/states/global';
+import { AppConfig, OrderList, OrderListStore, PassedListStore, getOrderToday, removeOrderToday, setOrderToday } from '@shared/states/global';
 import { ContentBox, PageContainer, Section } from '@shared/ui/design-system-v1';
 import { DateUtil } from '@shared/utils/date';
 import { useEffect, useRef, useState } from 'react';
@@ -10,7 +10,6 @@ import { useRecoilState, useRecoilValue } from 'recoil';
 import { MessageBox } from '../../components/MessageBox';
 import { useIsOpenDay } from '../../hooks/is-open-day-hook';
 import { SellByPercent } from '../../trading-strategy/sell-by-percent';
-import { OrderListStore, PassedListStore, getOrderToday, removeOrderToday, setOrderToday } from '../../utils/local-store';
 
 const AMOUNT_REG_EXP = /\B(?<!\.\d*)(?=(\d{3})+(?!\d))/g;
 
@@ -89,7 +88,7 @@ export function Main() {
           if (target) {
 
             // 주문 리스트 갱신
-            newOrder.stocks = [];
+            newOrder.stocks = [ ...newOrder.stocks ];
             newOrder.stocks.push(target.mksc_shrn_iscd);
             setOrderList({ ...newOrder });
 
@@ -188,6 +187,7 @@ export function Main() {
     const today = DateUtil.getToday();
     removeOrderToday();
     setOrderList({ date: today, stocks: [], trading: [] });
+    OrderListStore.removeAll();
     setMessage({ content: '주문내역이 초기화되었습니다.' });
   };
 

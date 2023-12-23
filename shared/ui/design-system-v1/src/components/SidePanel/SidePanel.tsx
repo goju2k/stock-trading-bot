@@ -13,6 +13,8 @@ const SidePanelContainer = styled(Flex).withConfig<{sideWidth:number;}>({ should
   top: 0px;
   padding: 15px;
   background: #ededed;
+  border-left: 1px solid lightgray;
+  box-shadow: 5px 5px 5px 5px lightgray;
   animation: side-show 0.25s cubic-bezier(0, 0, 0, 1);
 
   @keyframes side-show {
@@ -49,6 +51,18 @@ export function SidePanel({ open, sideWidth }:SidePanelProps) {
           orderList.trading.length > 0 
             ? orderList.trading.map((trad) => (
               <Text key={`log-${trad.code}`} text={trad.toString()} size={14} weight={500} whiteSpace='pre-line' textWidth='100%' />
+            ))
+            : <Text text='없음' size={14} weight={500} />
+        }
+      </FlexLeft>
+      <FlexCenter flexSize='50px'>
+        <Text text='이미 처리된 종목' size={16} weight={700} />
+      </FlexCenter>
+      <FlexLeft flexAlign='left-top' flexGap='5px' flexSize='fit-content' flexHeight='fit-content'>
+        {
+          orderList.stocks.length > 0 
+            ? orderList.stocks.map((code) => (
+              <Text key={`log-${code}`} text={code} size={14} weight={500} whiteSpace='pre-line' textWidth='100%' />
             ))
             : <Text text='없음' size={14} weight={500} />
         }
