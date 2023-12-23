@@ -4,10 +4,10 @@ import { DateUtil } from '@shared/utils/date';
 
 export function useIsOpenDay() {
   // 휴장일 조회
-  const [ businessDay ] = useKisApi(BusinessDay, { request: { params: { BASS_DT: DateUtil.getToday() } }, useCache: true });
+  const [ businessDay, setBusinessDay, refresh ] = useKisApi(BusinessDay, { request: { params: { BASS_DT: DateUtil.getToday() } }, useCache: true });
 
   // 개장 여부
   const isOpen = businessDay && businessDay[0] ? businessDay[0].opnd_yn : undefined;
 
-  return isOpen;
+  return { isOpen, checkOpenDay: refresh, setBusinessDay };
 }

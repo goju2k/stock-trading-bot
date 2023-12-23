@@ -19,7 +19,6 @@ export abstract class TradingStrategy {
   }
 
   process() {
-    this.state = 'checking';
     this.checking();
   }
 

@@ -10,7 +10,7 @@ import { useRecoilState } from 'recoil';
 import { MessageBox } from '../../components/MessageBox';
 import { useIsOpenDay } from '../../hooks/is-open-day-hook';
 import { SellByPercent } from '../../trading-strategy/sell-by-percent';
-import { getOrderToday, isOrderedStock, removeOrderToday, removeOrderedStock, setOrderToday, setOrderedStock } from '../../utils/local-store';
+import { OrderListStore, PassedListStore, getOrderToday, removeOrderToday, setOrderToday } from '../../utils/local-store';
 
 const AMOUNT_REG_EXP = /\B(?<!\.\d*)(?=(\d{3})+(?!\d))/g;
 
@@ -19,7 +19,11 @@ export function Main() {
   const [ message, setMessage ] = useState({ content: '' });
 
   // 개장 여부
-  const isOpen = useIsOpenDay();
+  const { isOpen, checkOpenDay } = useIsOpenDay();
+  const isOpenRef = useRef<string>();
+  useEffect(() => {
+    isOpenRef.current = isOpen;
+  }, [ isOpen ]);
 
   // 주문 리스트
   const [ orderList, setOrderList ] = useRecoilState(OrderList);
@@ -45,12 +49,15 @@ export function Main() {
         setMessage({ content: `자동조회중...${autoCount.current}` });
 
         const today = DateUtil.getToday();
-        if (isOpen) {
+        if (isOpenRef.current === 'Y') {
           const [ orderList, setOrderList ] = orderListRef.current;
           const newOrder = { ...orderList };
 
-          // 오늘 주문한 상태이면 종료
+          // 오늘 주문한 상태이면 현재 조회 대상들은 모두 pass 대상으로 처리
+          // (주문을 처리중인 상태에서 조회된 다른 종목들은 상품가치가 떨어짐. 새로 튀는것을 잡아야함)
           if (getOrderToday()) {
+            const currList = (response?.output || []).map((item) => item.mksc_shrn_iscd);
+            PassedListStore.setAll(currList);
             return;
           }
 
@@ -60,11 +67,15 @@ export function Main() {
             newOrder.stocks = [];
             newOrder.trading = [];
             removeOrderToday();
-            removeOrderedStock();
+            OrderListStore.removeAll();
+            PassedListStore.removeAll();
           }
 
           // 조건에 맞는 대상 종목 중 가장 위에것만 취하기
-          const [ target ] = (response?.output || []).filter((item) => !isOrderedStock(item.mksc_shrn_iscd) && isTargetRow(item));
+          const [ target ] = (response?.output || []).filter((item) => !OrderListStore.includes(item.mksc_shrn_iscd) // 오늘 주문 아니고
+          && !PassedListStore.includes(item.mksc_shrn_iscd) // Pass 대상도 아니고
+          && isTargetRow(item)); // 타겟 종목일때
+
           if (target) {
 
             // 주문 리스트 갱신
@@ -73,7 +84,7 @@ export function Main() {
             setOrderList({ ...newOrder });
 
             // 오늘의 주문 종목으로 기록
-            setOrderedStock(target.mksc_shrn_iscd);
+            OrderListStore.set(target.mksc_shrn_iscd);
 
             // 오늘 주문 flag 처리
             setOrderToday();
@@ -107,9 +118,6 @@ export function Main() {
                 console.log(msg, res.output);
                 setMessage({ content: msg });
 
-                // 주문된 건으로 처리
-                setOrderedStock(target.mksc_shrn_iscd);
-
                 // 매매전략 실행
                 newOrder.trading.push(new SellByPercent(target.mksc_shrn_iscd, 3, 4)); // 상위 3% 하위 -4% 매도 전략
                 setOrderList({ ...newOrder });
@@ -117,6 +125,9 @@ export function Main() {
               }
             });
           }
+        } else {
+          handleAutoModeClick();
+          setMessage({ content: '개장일이 아닙니다' });
         }
       }
     },
@@ -128,8 +139,9 @@ export function Main() {
   const interval = useRef<number>();
   useEffect(() => {
     if (auto) {
+      checkOpenDay(); // 개장일 다시 체크
       refresh();
-      interval.current = window.setInterval(refresh, 2000);
+      interval.current = window.setInterval(refresh, 1000);
     }
     return () => {
       window.clearInterval(interval.current);
@@ -162,6 +174,7 @@ export function Main() {
     const today = DateUtil.getToday();
     removeOrderToday();
     setOrderList({ date: today, stocks: [], trading: [] });
+    setMessage({ content: '주문내역이 초기화되었습니다.' });
   };
 
   // 그리드 포맷

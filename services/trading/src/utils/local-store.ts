@@ -1,5 +1,7 @@
 import { DateUtil } from '@shared/utils/date';
 
+import { ListBasedLocalStore } from './base/list-based-local-store';
+
 // today's order
 export function getOrderToday() {
   const today = DateUtil.getToday();
@@ -16,28 +18,12 @@ export function removeOrderToday() {
   window.localStorage.removeItem(`order-${today}`);
 }
 
-// ordered list
-const orderedListKey = 'order-list';
-export function isOrderedStock(stock:string) {
-  return getOrderedStock().includes(stock);
-}
+/**
+ * 오늘 주문이력
+ */
+export const OrderListStore = new ListBasedLocalStore('order-list');
 
-export function getOrderedStock() {
-  const orderList = window.localStorage.getItem(orderedListKey);
-  if (orderList) {
-    return JSON.parse(orderList) as string[];
-  }
-  return [];
-}
-
-export function setOrderedStock(stock:string) {
-  const list = getOrderedStock();
-  if (!list.includes(stock)) {
-    list.push(stock);
-  }
-  window.localStorage.setItem(orderedListKey, JSON.stringify(list));
-}
-
-export function removeOrderedStock() {
-  window.localStorage.removeItem(orderedListKey);
-}
+/**
+ * 오늘 주문대상에서 제외된 목록
+ */
+export const PassedListStore = new ListBasedLocalStore('passed-list');
