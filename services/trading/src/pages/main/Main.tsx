@@ -1,4 +1,4 @@
-import { Button, Flex, Grid, GridHeader } from '@mint-ui/core';
+import { Button, Flex, Grid, GridHeader, LineChart } from '@mint-ui/core';
 import { OrderCache, ResponseVolumeRank, VolumeRank } from '@shared/apis/kis';
 import { useKisApi } from '@shared/hooks/api-hook';
 import { AppConfig, OrderList } from '@shared/states/global';
@@ -233,7 +233,7 @@ export function Main() {
         <Section rowDirection flexAlign='center' flexSize='50px' justifyContent='space-between'>
           <MessageBox message={message} clear={!auto} />
         </Section>
-        <Section flexAlign='center'>
+        <Section flexAlign='center' flexPadding='10px 0px'>
           <Flex>
             <Grid
               headers={[
@@ -249,6 +249,28 @@ export function Main() {
               rowHeightExtensible
             />
           </Flex>
+        </Section>
+        <Section flexSize='200px'>
+          {data && (
+            <LineChart
+              data={data.slice(0, 15)}
+              series={[{
+                type: 'PointAndFill', 
+                keyY: 'prdy_ctrt',
+                lineStyle: { fill: 'lightgreen', fillOpacity: 0.6, stroke: 'lightgreen', strokeWidth: 2 }, 
+                pointStyle: { pointSize: 2 },
+              }]}
+              seriesConfig={{
+                keyX: 'data_rank',
+                valueUnit: 5, 
+                labelY: { renderer: (val) => `${val}%` }, 
+              }}
+              paddingTop={30}
+              paddingBottom={30}
+              paddingLeft={35}
+              paddingRight={10}
+            />
+          )}
         </Section>
       </ContentBox>
     </PageContainer>
