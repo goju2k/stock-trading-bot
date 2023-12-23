@@ -2,6 +2,7 @@ import { createGlobalStyle } from 'styled-components';
 
 import { ButtonCss } from './ButtonStyle';
 import { GridCss } from './GridStyle';
+import { TableCss } from './TableStyle';
 
 export const GlobalStyleV1 = createGlobalStyle`
 
@@ -33,6 +34,9 @@ export const GlobalStyleV1 = createGlobalStyle`
 
   // Grid
   ${GridCss}
+
+  // Table
+  ${TableCss}
 
   // Button
   ${ButtonCss}

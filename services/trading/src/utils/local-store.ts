@@ -1,6 +1,5 @@
 import { DateUtil } from '@shared/utils/date';
-
-import { ListBasedLocalStore } from './base/list-based-local-store';
+import { ListBasedLocalStore } from '@shared/utils/localstorage';
 
 // today's order
 export function getOrderToday() {
@@ -21,9 +20,9 @@ export function removeOrderToday() {
 /**
  * 오늘 주문이력
  */
-export const OrderListStore = new ListBasedLocalStore('order-list');
+export const OrderListStore = new ListBasedLocalStore<string>('order-list');
 
 /**
  * 오늘 주문대상에서 제외된 목록
  */
-export const PassedListStore = new ListBasedLocalStore('passed-list');
+export const PassedListStore = new ListBasedLocalStore<string>('passed-list');
