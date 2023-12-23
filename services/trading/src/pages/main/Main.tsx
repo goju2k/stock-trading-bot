@@ -258,7 +258,7 @@ export function Main() {
             />
           </Flex>
         </Section>
-        <Section flexSize='200px'>
+        <Section flexSize='180px'>
           {data && (
             <LineChart
               data={data.slice(0, 15)}
@@ -271,7 +271,8 @@ export function Main() {
               seriesConfig={{
                 keyX: 'data_rank',
                 valueUnit: 5, 
-                labelY: { renderer: (val) => `${val}%` }, 
+                labelY: { renderer: (val) => `${val}%` },
+                maxValue: 30,
               }}
               paddingTop={30}
               paddingBottom={30}
