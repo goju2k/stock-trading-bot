@@ -195,6 +195,10 @@ export function Main() {
   function amountFormat<T>(item:T, header:GridHeader<T>) {
     return String(item[header.targetId]).replace(AMOUNT_REG_EXP, ',');
   }
+  function percentFixedFormat<T>(item:T, header:GridHeader<T>) {
+    const val = Number(item[header.targetId]);
+    return `${(val > 9999 ? '9999' : val.toFixed(0)).replace(AMOUNT_REG_EXP, ',')} %`;
+  }
   function percentFormat<T>(item:T, header:GridHeader<T>) {
     return `${String(item[header.targetId])} %`;
   }
@@ -247,10 +251,10 @@ export function Main() {
               headers={[
                 { label: '순위', targetId: 'data_rank', width: 40, textAlign: 'center' },
                 { label: '종목', targetId: 'hts_kor_isnm', minWidth: 60, fontWeight: 700 },
-                { label: '현재가', targetId: 'stck_prpr', minWidth: 55, textAlign: 'right', textFormat: amountFormat },
-                { label: '등락율', targetId: 'prdy_ctrt', minWidth: 60, textAlign: 'right', textFormat: percentFormat, color: amountRedBlue },
+                { label: '현재가', targetId: 'stck_prpr', minWidth: 50, textAlign: 'right', textFormat: amountFormat },
+                { label: '등락율', targetId: 'prdy_ctrt', minWidth: 55, textAlign: 'right', textFormat: percentFormat, color: amountRedBlue },
                 { label: '거래량', targetId: 'acml_vol', minWidth: 65, textAlign: 'right', textFormat: amountFormat },
-                { label: '증가율', targetId: 'vol_inrt', minWidth: 68, textAlign: 'right', textFormat: percentFormat },
+                { label: '증가율', targetId: 'vol_inrt', minWidth: 55, textAlign: 'right', textFormat: percentFixedFormat },
               ]}
               data={data || []}
               gridStyle={{ emptyText: 'No data', rowClassName: targetRowClassName }}
