@@ -1,4 +1,4 @@
-import { Button, Flex, Grid, GridHeader, LineChart } from '@mint-ui/core';
+import { Button, Flex, Grid, GridHeader, LineChart, Text } from '@mint-ui/core';
 import { OrderCache, ResponseVolumeRank, VolumeRank } from '@shared/apis/kis';
 import { useKisApi } from '@shared/hooks/api-hook';
 import { AppConfig, OrderList, OrderListStore, PassedListStore, getOrderToday, removeOrderToday, setOrderToday } from '@shared/states/global';
@@ -259,9 +259,14 @@ export function Main() {
           </Flex>
         </Section>
         <Section flexSize='180px'>
-          {data && (
+          {data && data.length > 0 ? (
             <LineChart
-              data={data.slice(0, 15)}
+              data={data.filter((item) => Number(item.prdy_ctrt) > 0).map(
+                (item, idx) => ({
+                  ...item,
+                  data_rank: idx,
+                }),
+              ).slice(0, 15)}
               series={[{
                 type: 'PointAndFill', 
                 keyY: 'prdy_ctrt',
@@ -270,8 +275,9 @@ export function Main() {
               }]}
               seriesConfig={{
                 keyX: 'data_rank',
-                valueUnit: 5, 
+                valueUnit: 6, 
                 labelY: { renderer: (val) => `${val}%` },
+                minValue: 0,
                 maxValue: 30,
               }}
               paddingTop={30}
@@ -279,7 +285,8 @@ export function Main() {
               paddingLeft={35}
               paddingRight={10}
             />
-          )}
+          )
+            : <Flex flexAlign='center'><Text text='No Data' /></Flex>}
         </Section>
       </ContentBox>
     </PageContainer>
