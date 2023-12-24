@@ -3,12 +3,13 @@ import axios from 'axios';
 import EnvConstants from './env-constants';
 
 const prevToken = window.localStorage.getItem('kis-token');
+// console.log('EnvConstants.VITE_JEST_FLAG', EnvConstants.VITE_JEST_FLAG);
 
 const headers = {
   'content-type': 'application/json; charset=utf-8',
   appkey: EnvConstants.VITE_KIS_APP_KEY,
   appsecret: EnvConstants.VITE_KIS_APP_SECRET,
-  Authorization: `Bearer ${EnvConstants.VITE_KIS_TOKEN || prevToken}`,
+  Authorization: `Bearer ${EnvConstants.VITE_JEST_FLAG ? EnvConstants.VITE_KIS_TOKEN : prevToken}`,
   custtype: 'P',
 };
 
@@ -59,7 +60,7 @@ const createInstance = () => {
 
 const instanceObject = { instance: createInstance() };
 
-if (!EnvConstants.VITE_KIS_TOKEN && !prevToken) {
+if (!EnvConstants.VITE_JEST_FLAG && !prevToken) {
   refreshToken();
 }
 

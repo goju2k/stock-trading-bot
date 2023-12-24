@@ -4,6 +4,7 @@ const {
   VITE_KIS_HOST,
   VITE_KIS_CANO,
   VITE_KIS_TOKEN,
+  VITE_JEST_FLAG,
 } = import.meta.env;
 
 export default {
@@ -12,4 +13,5 @@ export default {
   VITE_KIS_HOST,
   VITE_KIS_CANO,
   VITE_KIS_TOKEN,
+  VITE_JEST_FLAG,
 };
