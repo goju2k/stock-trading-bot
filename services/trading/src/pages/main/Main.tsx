@@ -55,8 +55,8 @@ export function Main() {
         
         // 개장일이고 처리시간 내이면
         if (isOpenRef.current === 'Y'
-        && appConfig.workingStart > todayHHMi 
-        && appConfig.workingEnd < todayHHMi
+        && appConfig.workingStart <= todayHHMi 
+        && appConfig.workingEnd >= todayHHMi
         ) {
 
           const [ orderList, setOrderList ] = orderListRef.current;
