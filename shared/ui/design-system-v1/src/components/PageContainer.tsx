@@ -12,7 +12,7 @@ import { PageState } from '../states/page-state';
 const PAGE_PADDING = '10px';
 
 const PageWrapper = styled(Flex)`
-  max-width: 700px;
+  
 `;
 
 export interface PageContainerProps {

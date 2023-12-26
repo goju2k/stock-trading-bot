@@ -1,3 +1,4 @@
+import { Flex } from '@mint-ui/core';
 import { useContext } from 'react';
 
 import { ComponentRoutesContext, ComponentRoutesContextInterface } from './ComponentRoutesContext';
@@ -8,12 +9,9 @@ export interface ComponentRouteProps {
 }
 export function ComponentRoute({ path, component }:ComponentRouteProps) {
   const { path: pathOfContext } = useContext<ComponentRoutesContextInterface>(ComponentRoutesContext);
-  if (pathOfContext !== path) {
-    return null;
-  }
   return (
-    <>
+    <Flex style={{ display: pathOfContext !== path ? 'none' : '', maxWidth: '700px' }}>
       {component}
-    </>
+    </Flex>
   );
 }
