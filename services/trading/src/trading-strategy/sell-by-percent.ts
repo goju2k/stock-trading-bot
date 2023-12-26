@@ -7,6 +7,8 @@ export class SellByPercent extends TradingStrategy {
 
   lowPercent!:number;
 
+  sellAmt:number = 0;
+
   orderInfo?:ResponseInquireBalance;
 
   constructor(code:string, highPercent:number, lowPercent:number) {
@@ -57,23 +59,25 @@ export class SellByPercent extends TradingStrategy {
         this.processError(`상위 매도주문 (${this.highPercent}%) 실패`);
         return;
       }
+
+      this.sellAmt = Number(highAmt);
       
-      // 하위
-      const lowAmt = (myAmt - ((myAmt * this.lowPercent) / 100)).toFixed(0);
-      const resLow = await OrderCache({
-        body: {
-          BUY: false, 
-          PDNO: this.orderInfo.pdno,
-          ORD_QTY: String(count),
-          ORD_DVSN: '00', // 00: 지정가
-          ORD_UNPR: lowAmt, 
-        },
-      });
+      // 하위 => 정정 로직으로 변경해야함. 그때까지 주석처리
+      // const lowAmt = (myAmt - ((myAmt * this.lowPercent) / 100)).toFixed(0);
+      // const resLow = await OrderCache({
+      //   body: {
+      //     BUY: false, 
+      //     PDNO: this.orderInfo.pdno,
+      //     ORD_QTY: String(count),
+      //     ORD_DVSN: '00', // 00: 지정가
+      //     ORD_UNPR: lowAmt, 
+      //   },
+      // });
       
-      if (resLow.rt_cd !== '0') {
-        this.processError(`하위 매도주문 (${this.lowPercent}%) 실패`);
-        return;
-      }
+      // if (resLow.rt_cd !== '0') {
+      //   this.processError(`하위 매도주문 (${this.lowPercent}%) 실패`);
+      //   return;
+      // }
       
       // sell wait 으로..
       this.sellWaiting();
@@ -101,6 +105,10 @@ export class SellByPercent extends TradingStrategy {
     this.state = 'done';
     this.stateMessage = '(종료) 판매완료';
     removeOrderToday(); // 오늘 주문내역을 초기화 해서 다음 주문으로 이어지도록 처리
+  }
+
+  toString() {
+    return `${super.toString()} ${this.sellAmt > 0 ? `매도 ${this.sellAmt}원` : ''}`;
   }
 
 }
