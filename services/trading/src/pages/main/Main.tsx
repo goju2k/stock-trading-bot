@@ -191,6 +191,11 @@ export function Main() {
     setMessage({ content: '주문내역이 초기화되었습니다.' });
   };
 
+  const handleExcludeClick = () => {
+    const currList = (data || []).map((item) => item.mksc_shrn_iscd);
+    PassedListStore.setAll(currList);
+  };
+
   // 그리드 포맷
   function amountFormat<T>(item:T, header:GridHeader<T>) {
     return String(item[header.targetId]).replace(AMOUNT_REG_EXP, ',');
@@ -236,10 +241,11 @@ export function Main() {
           <Flex rowDirection flexAlign='center' flexGap='10px'>
             <Flex flexAlign='left-center'>{isOpen === undefined ? '' : `개장일:${isOpen}`}</Flex>
           </Flex>
-          <Flex rowDirection flexSize='180px' flexAlign='right-center' flexGap='5px'>
+          <Flex rowDirection flexSize='270px' flexAlign='right-center' flexGap='5px'>
             <Button onClick={handleWorkReset}>초기화</Button>
             <Button onClick={handleAutoModeClick}>{`작업 ${auto ? 'ON' : 'OFF'}`}</Button>
             <Button disabled={auto} onClick={handleRefreshClick}>조회</Button>
+            <Button onClick={handleExcludeClick}>제외처리</Button>
           </Flex>
         </Section>
         <Section rowDirection flexAlign='center' flexSize='50px' justifyContent='space-between'>

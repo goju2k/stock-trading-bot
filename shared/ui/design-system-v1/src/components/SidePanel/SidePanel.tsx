@@ -1,5 +1,5 @@
 import { Text } from '@mint-ui/core';
-import { OrderList } from '@shared/states/global';
+import { OrderList, PassedListStore } from '@shared/states/global';
 import { useRecoilValue } from 'recoil';
 import styled from 'styled-components';
 
@@ -34,6 +34,7 @@ export interface SidePanelProps {
 }
 export function SidePanel({ open, sideWidth }:SidePanelProps) {
   const orderList = useRecoilValue(OrderList);
+  const excludeList = PassedListStore.get();
   return (
     <SidePanelContainer
       onClick={(e) => {
@@ -64,6 +65,16 @@ export function SidePanel({ open, sideWidth }:SidePanelProps) {
             ? orderList.stocks.map((code) => (
               <Text key={`log-${code}`} text={code} size={14} weight={500} whiteSpace='pre-line' textWidth='100%' />
             ))
+            : <Text text='없음' size={14} weight={500} />
+        }
+      </FlexLeft>
+      <FlexCenter flexSize='50px'>
+        <Text text='처리 제외 종목' size={16} weight={700} />
+      </FlexCenter>
+      <FlexLeft flexAlign='left-top' flexGap='5px' flexSize='fit-content' flexHeight='fit-content'>
+        {
+          excludeList.length > 0 
+            ? <Text key='log-exclude' text={excludeList.join(', ')} size={14} weight={500} whiteSpace='pre-line' textWidth='100%' />
             : <Text text='없음' size={14} weight={500} />
         }
       </FlexLeft>
