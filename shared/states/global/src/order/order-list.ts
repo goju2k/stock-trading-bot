@@ -13,4 +13,5 @@ export interface OrderListInterface {
 export const OrderList = atom<OrderListInterface>({
   key: 'order-list',
   default: { date: '', stocks: OrderListStore.get(), trading: [] },
+  dangerouslyAllowMutability: true,
 });
