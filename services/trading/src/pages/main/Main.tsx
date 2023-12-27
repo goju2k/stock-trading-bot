@@ -1,7 +1,7 @@
 import { Button, Flex, Grid, GridHeader, LineChart, Text } from '@mint-ui/core';
 import { OrderCache, ResponseVolumeRank, VolumeRank } from '@shared/apis/kis';
 import { useKisApi } from '@shared/hooks/api-hook';
-import { AppConfig, OrderList, OrderListStore, PassedListStore, getOrderToday, removeOrderToday, setOrderToday } from '@shared/states/global';
+import { AppConfig, OrderList, OrderListStore, PassedListStore, getOrderToday, removeOrderToday } from '@shared/states/global';
 import { ContentBox, PageContainer, Section } from '@shared/ui/design-system-v1';
 import { DateUtil } from '@shared/utils/date';
 import { useEffect, useRef, useState } from 'react';
@@ -80,7 +80,7 @@ export function Main() {
             PassedListStore.removeAll();
           }
 
-          // 조건에 맞는 대상 종목 중 가장 위에것만 취하기
+          // 조건에 맞는 대상 종목 중 가장 위에것만 취하기 (1건씩만)
           const [ target ] = (response?.output || []).filter((item) => !OrderListStore.includes(item.mksc_shrn_iscd) // 오늘 주문 아니고
           && !PassedListStore.includes(item.mksc_shrn_iscd) // Pass 대상도 아니고
           && isTargetRow(item)); // 타겟 종목일때
@@ -91,19 +91,29 @@ export function Main() {
             newOrder.stocks = [ ...newOrder.stocks ];
             newOrder.stocks.push(target.mksc_shrn_iscd);
             setOrderList({ ...newOrder });
+            PassedListStore.set(target.mksc_shrn_iscd);
 
             // 오늘의 주문 종목으로 기록
             OrderListStore.set(target.mksc_shrn_iscd);
 
             // 오늘 주문 flag 처리
-            setOrderToday();
+            //  => 여러개의 주문을 처리하기 위해 더이상 주문을 막지 않는다.
+            // setOrderToday();
 
-            // 주문 API 처리 ( 주문수량 1개, 시장가(01) 매수 )
+            // 주문 API 처리 ( 시장가(01) 매수 )
+            // 주문 수량
+            const maxAmt = appConfig.maxOrderAmt;
+            const orderCount = (maxAmt / Number(target.stck_prpr)).toFixed(0);
+            if (Number(orderCount) <= 0) { // 신청 불가하면 pass
+              setMessage({ content: `최대 주문금액 (${maxAmt}) 을 초과합니다.` });
+              return;
+            }
+
             OrderCache({
               body: {
                 BUY: true, 
                 PDNO: target.mksc_shrn_iscd,
-                ORD_QTY: '1',
+                ORD_QTY: orderCount,
                 ORD_DVSN: '01',
                 ORD_UNPR: '0', 
               }, 
@@ -116,18 +126,16 @@ export function Main() {
                 const msg = `[${target.mksc_shrn_iscd} / ${target.hts_kor_isnm}] 주식주문불가??? => ${res.msg1}`;
                 console.log(msg);
                 setMessage({ content: msg });
-                removeOrderToday();
-                newOrder.stocks = [];
-                setOrderList({ ...newOrder });
-
+                
               } else { // 주문 성공인 경우
 
                 // 메시지 처리
-                const msg = `[${target.mksc_shrn_iscd} / ${target.hts_kor_isnm}] 주식주문완료!!! => ${res.output.ODNO}`;
+                const msg = `[${target.mksc_shrn_iscd} / ${target.hts_kor_isnm}] 주식주문완료!!! => ${res.output.ODNO} ${orderCount}주`;
                 console.log(msg, res.output);
                 setMessage({ content: msg });
 
                 // 매매전략 실행
+                newOrder.trading = [ ...newOrder.trading ];
                 newOrder.trading.push(new SellByPercent(target.mksc_shrn_iscd, appConfig.highPercentage, appConfig.lowPercentage)); // 상위 3% 하위 -4% 매도 전략
                 setOrderList({ ...newOrder });
 
@@ -274,7 +282,7 @@ export function Main() {
               data={data.filter((item) => Number(item.prdy_ctrt) > 0).map(
                 (item, idx) => ({
                   ...item,
-                  data_rank: idx,
+                  data_rank: idx + 1,
                 }),
               ).slice(0, 15)}
               series={[{

@@ -31,10 +31,11 @@ export function AdvanceOrder() {
                 columnCountPerRow={1}
               />
             </Flex>
-            <Flex flexSize='120px'>
+            <Flex flexSize='160px'>
               <Text text='매매 설정' size={16} weight={700} />
               <Table
                 headers={[
+                  { label: '최대 매수금액 (원)', targetId: 'maxOrderAmt', formType: 'input', editable: true, maxLength: 6 },
                   { label: '상위 매도 값 (%)', targetId: 'highPercentage', formType: 'input', editable: true, maxLength: 2 },
                   { label: '하위 매도 값 (%)', targetId: 'lowPercentage', formType: 'input', editable: true, maxLength: 2 },
                 ]} 

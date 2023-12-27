@@ -25,9 +25,22 @@ function getTodayHHMi(delimeter?:string) {
   return getHHMi(new Date(), delimeter);
 }
 
+function getHHMiSS(date:Date, delimeter?:string) {
+  const hh = date.getHours();
+  const mm = date.getMinutes();
+  const ss = date.getSeconds();
+  return `${padNumber(hh, 2)}${delimeter || ''}${padNumber(mm, 2)}${delimeter || ''}${padNumber(ss, 2)}`;
+}
+
+function getTodayHHMiSS(delimeter?:string) {
+  return getHHMiSS(new Date(), delimeter);
+}
+
 export const DateUtil = {
   getToday,
   getYYYYMMDD,
   getHHMi,
   getTodayHHMi,
+  getHHMiSS,
+  getTodayHHMiSS,
 };

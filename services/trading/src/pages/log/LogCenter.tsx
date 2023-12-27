@@ -1,9 +1,130 @@
-import { ContentBox, PageContainer } from '@shared/ui/design-system-v1';
+import { Flex, LineChart, Text } from '@mint-ui/core';
+import { CheckBalance, CheckBalanceListener } from '@shared/apis/kis';
+import { OrderList } from '@shared/states/global';
+import { ContentBox, FlexLeft, PageContainer } from '@shared/ui/design-system-v1';
+import { DateUtil } from '@shared/utils/date';
+import { useEffect, useRef, useState } from 'react';
+import { useRecoilState } from 'recoil';
+
+interface LogData {
+  code:string;
+  name:string;
+  amt:string;
+  currAmt:string;
+  data:LogSeries[];
+}
+
+interface LogSeries {
+  time:number;
+  percent:number;
+}
 
 export function LogCenter() {
+  
+  // balance data
+  const [ balanceData, setBalanceData ] = useState<LogData[]>([]);
+  const balanceDataRef = useRef(balanceData);
+  useEffect(() => {
+    balanceDataRef.current = balanceData;
+  }, [ balanceData ]);
+
+  // 잔고조회 listener
+  const checkRef = useRef<CheckBalanceListener>((data) => {
+
+    const hhmi = Number(DateUtil.getTodayHHMiSS());
+
+    const newBalanceData:typeof balanceData = [];
+    orderListRef.current.forEach((trad) => {
+      
+      // 기존 data 있는지 체크
+      let [ prev ] = balanceDataRef.current.filter((bal) => bal.code === trad.code);
+      if (!prev) {
+        prev = { code: trad.code, name: '', amt: '0', currAmt: '0', data: [] };
+      }
+
+      // 잔고 조회 데이터 추가
+      const [ filtered ] = data.filter((item) => item.pdno === prev.code && Number(item.hldg_qty) === 0);
+      if (filtered) {
+        prev.data.push({ time: hhmi, percent: Number(filtered.evlu_pfls_rt) });
+        prev.name = filtered.prdt_name;
+        prev.amt = Number(filtered.pchs_avg_pric).toFixed(0);
+        prev.currAmt = filtered.prpr;
+      }
+
+      // 10개 까지만 처리 (넘치면 앞에서 자르기)
+      if (prev.data.length > 10) {
+        prev.data.splice(0, prev.data.length - 10);
+      }
+
+      newBalanceData.push(prev);
+
+    });
+
+    setBalanceData(newBalanceData);
+
+  });
+    
+  // 주문 리스트
+  const [ orderList ] = useRecoilState(OrderList);
+  const orderListRef = useRef(orderList.trading);
+  useEffect(() => {
+
+    orderListRef.current = orderList.trading;
+
+    // 잔고조회 listener add / remove
+    const filters = orderList.trading.filter((trad) => trad.state === 'sell-waiting');
+    if (filters.length > 0) {
+      CheckBalance.addListener(checkRef.current);
+    } else {
+      CheckBalance.removeListener(checkRef.current);
+    }
+    
+    return () => {
+      CheckBalance.removeListener(checkRef.current);
+    };
+
+  }, [ orderList.trading ]);
+
   return (
-    <PageContainer title='작업로그'>
-      <ContentBox />
+    <PageContainer title='작업중 내역'>
+      <ContentBox>
+        <FlexLeft flexAlign='left-top' flexGap='5px' flexSize='fit-content' flexHeight='fit-content'>
+          {
+            balanceData.length > 0 
+              ? balanceData.map((trad) => (
+                <>
+                  <FlexLeft flexSize='50px'>
+                    <Text text={`[${trad.code}] ${trad.name} / 매수가 : ${trad.amt} 원 / 현재가 : ${trad.currAmt} 원`} size={16} weight={700} />
+                  </FlexLeft>
+                  {trad.data.length > 0 ? (
+                    <FlexLeft flexSize='200px'>
+                      <LineChart
+                        data={trad.data}
+                        series={[{
+                          type: 'PointAndFill', 
+                          keyY: 'percent',
+                          lineStyle: { fill: 'lightgreen', fillOpacity: 0.6, stroke: 'lightgreen', strokeWidth: 2 }, 
+                          pointStyle: { pointSize: 2 },
+                        }]}
+                        seriesConfig={{
+                          keyX: 'time',
+                          valueUnit: 6, 
+                          minValue: 0,
+                          maxValue: 30,
+                        }}
+                        paddingTop={30}
+                        paddingBottom={30}
+                        paddingLeft={35}
+                        paddingRight={10}
+                      />
+                    </FlexLeft>
+                  ) : <Flex flexAlign='center'><Text text='No Data' /></Flex>}
+                </>
+              ))
+              : <Flex flexAlign='center'><Text text='No Data' size={16} /></Flex>
+          }
+        </FlexLeft>
+      </ContentBox>
     </PageContainer>
   );
 }

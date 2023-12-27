@@ -25,8 +25,8 @@ export function Footer() {
     <FlexBetween rowDirection flexSize='40px'>
       <FlexLeft rowDirection flexGap='20px'>
         <MenuButton label='거래량조회' path='' />
+        <MenuButton label='작업중' path='log-center' />
         <MenuButton label='주문설정' path='advance-order' />
-        <MenuButton label='작업로그' path='log-center' />
       </FlexLeft>
       <FlexRight flexSize='40px'>
         <NaviButton click={(e) => {

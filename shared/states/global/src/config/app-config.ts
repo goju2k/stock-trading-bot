@@ -7,6 +7,7 @@ export interface AppConfigBase {
   'workingEnd': string;
   'highPercentage': number;
   'lowPercentage': number;
+  'maxOrderAmt': number;
 }
 
 export const AppConfigStore = new ObjectBasedLocalStore<AppConfigBase>('app-config');
@@ -19,7 +20,12 @@ if (Object.getOwnPropertyNames(defaultValue).length === 0) {
     workingEnd: '1140',
     highPercentage: 3,
     lowPercentage: 4,
+    maxOrderAmt: 30000,
   };
+}
+
+if (!defaultValue.maxOrderAmt === undefined) {
+  defaultValue.maxOrderAmt = 30000;
 }
 
 export const AppConfig = atom<AppConfigBase>({
