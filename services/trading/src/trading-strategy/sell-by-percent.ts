@@ -1,4 +1,4 @@
-import { InquireBalance, OrderCache, ResponseInquireBalance } from '@shared/apis/kis';
+import { CheckBalance, CheckBalanceListener, OrderCache, ResponseInquireBalance } from '@shared/apis/kis';
 import { TradingStrategy, removeOrderToday } from '@shared/states/global';
 
 export class SellByPercent extends TradingStrategy {
@@ -21,16 +21,16 @@ export class SellByPercent extends TradingStrategy {
   checking(): void {
 
     this.state = 'checking';
-
-    setTimeout(async () => {
-      const filtered = await getBalance(this.code);
+    const check:CheckBalanceListener = async (data) => {
+      const filtered = getBalance(data, this.code);
       if (filtered) {
         this.orderInfo = filtered;
         this.sellOrder();
-      } else {
-        this.checking();
+        CheckBalance.removeListener(check);
       }
-    }, 1000);
+    };
+    CheckBalance.addListener(check);
+
   }
 
   async sellOrder() {
@@ -56,7 +56,7 @@ export class SellByPercent extends TradingStrategy {
       });
 
       if (resHigh.rt_cd !== '0') {
-        this.processError(`상위 매도주문 (${this.highPercent}%) 실패`);
+        this.processError(`상위 매도주문 (${this.highPercent}%) 실패\n${resHigh.msg1}`);
         return;
       }
 
@@ -91,14 +91,14 @@ export class SellByPercent extends TradingStrategy {
   sellWaiting(): void {
     
     this.state = 'sell-waiting';
-
-    setTimeout(async () => {
-      if (await hasBalance(this.code)) { // 잔고가 0 이상인것만...
-        this.sellWaiting();
-      } else {
+    const check:CheckBalanceListener = async (data) => {
+      if (!hasBalance(data, this.code)) { // 판매완료인 경우 완료처리
         this.done();
+        CheckBalance.removeListener(check);
       }
-    }, 1000);
+    };
+    CheckBalance.addListener(check);
+    
   }
 
   done(): void {
@@ -114,13 +114,12 @@ export class SellByPercent extends TradingStrategy {
 }
 
 // 주식 잔고 조회
-const getBalance = async (code:string) => {
-  const data = await InquireBalance();
-  const [ filtered ] = data.output1.filter((item) => item.pdno === code);
+const getBalance = (data: ResponseInquireBalance[], code:string) => {
+  const [ filtered ] = data.filter((item) => item.pdno === code);
 
   // 잔고가 0 이상인지 체크
   return filtered && Number(filtered.hldg_qty) > 0 ? filtered : undefined;
 };
 
 // 주식 잔고 존재 체크
-const hasBalance = async (code:string) => (!!await getBalance(code));
+const hasBalance = (data: ResponseInquireBalance[], code:string) => (!!getBalance(data, code));
