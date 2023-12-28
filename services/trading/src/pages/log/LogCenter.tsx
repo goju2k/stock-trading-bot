@@ -11,12 +11,16 @@ interface LogData {
   name:string;
   amt:string;
   currAmt:string;
+  targetAmtHigh:number;
+  targetAmtLow:number;
   data:LogSeries[];
 }
 
 interface LogSeries {
   time:number;
-  percent:number;
+  currAmt:number;
+  targetAmtHigh:number;
+  targetAmtLow:number;
 }
 
 export function LogCenter() {
@@ -39,13 +43,26 @@ export function LogCenter() {
       // 기존 data 있는지 체크
       let [ prev ] = balanceDataRef.current.filter((bal) => bal.code === trad.code);
       if (!prev) {
-        prev = { code: trad.code, name: '', amt: '0', currAmt: '0', data: [] };
+        prev = {
+          code: trad.code,
+          name: '',
+          amt: '0',
+          currAmt: '0', 
+          targetAmtHigh: trad.sellAmtHigh,
+          targetAmtLow: trad.sellAmtLow,
+          data: [], 
+        };
       }
 
       // 잔고 조회 데이터 추가
       const [ filtered ] = data.filter((item) => item.pdno === prev.code && Number(item.hldg_qty) === 0);
       if (filtered) {
-        prev.data.push({ time: hhmi, percent: Number(filtered.evlu_pfls_rt) });
+        prev.data.push({
+          time: hhmi,
+          currAmt: Number(filtered.prpr),
+          targetAmtHigh: trad.sellAmtHigh,
+          targetAmtLow: trad.sellAmtLow,
+        });
         prev.name = filtered.prdt_name;
         prev.amt = Number(filtered.pchs_avg_pric).toFixed(0);
         prev.currAmt = filtered.prpr;
@@ -72,7 +89,7 @@ export function LogCenter() {
     orderListRef.current = orderList.trading;
 
     // 잔고조회 listener add / remove
-    const filters = orderList.trading.filter((trad) => trad.state === 'sell-waiting');
+    const filters = orderList.trading.filter((trad) => trad.state === 'watching-for-sell');
     if (filters.length > 0) {
       CheckBalance.addListener(checkRef.current);
     } else {
@@ -100,17 +117,29 @@ export function LogCenter() {
                     <FlexLeft flexSize='200px'>
                       <LineChart
                         data={trad.data}
-                        series={[{
-                          type: 'PointAndFill', 
-                          keyY: 'percent',
-                          lineStyle: { fill: 'lightgreen', fillOpacity: 0.6, stroke: 'lightgreen', strokeWidth: 2 }, 
-                          pointStyle: { pointSize: 2 },
-                        }]}
+                        series={[
+                          {
+                            type: 'PointAndFill', 
+                            keyY: 'currAmt',
+                            lineStyle: { fill: 'lightgreen', fillOpacity: 0.6, stroke: 'lightgreen', strokeWidth: 2 }, 
+                            pointStyle: { pointSize: 2 },
+                          },
+                          {
+                            type: 'Line', 
+                            keyY: 'targetAmtHigh',
+                            lineStyle: { stroke: 'blue', strokeWidth: 2 },
+                          },
+                          {
+                            type: 'Line', 
+                            keyY: 'targetAmtLow',
+                            lineStyle: { stroke: 'red', strokeWidth: 2 },
+                          },
+                        ]}
                         seriesConfig={{
                           keyX: 'time',
-                          valueUnit: 6, 
-                          minValue: 0,
-                          maxValue: 30,
+                          valueUnit: 5, 
+                          minValue: Math.round(trad.targetAmtLow * 0.9),
+                          maxValue: Math.round(trad.targetAmtHigh * 1.1),
                         }}
                         paddingTop={30}
                         paddingBottom={30}
