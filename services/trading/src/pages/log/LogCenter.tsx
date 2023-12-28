@@ -23,6 +23,9 @@ interface LogSeries {
   targetAmtLow:number;
 }
 
+const getContainerSize = () => Math.min(window.screen.width, 700);
+const getXCountPerWidth = () => Math.floor(getContainerSize() / 50);
+
 export function LogCenter() {
   
   // balance data
@@ -36,6 +39,8 @@ export function LogCenter() {
   const checkRef = useRef<CheckBalanceListener>((data) => {
 
     const hhmi = Number(DateUtil.getTodayHHMiSS());
+    
+    const xCountPerWidth = getXCountPerWidth();
 
     const newBalanceData:typeof balanceData = [];
     orderListRef.current.forEach((trad) => {
@@ -55,7 +60,7 @@ export function LogCenter() {
       }
 
       // 잔고 조회 데이터 추가
-      const [ filtered ] = data.filter((item) => item.pdno === prev.code && Number(item.hldg_qty) === 0);
+      const [ filtered ] = data.filter((item) => item.pdno === prev.code && Number(item.hldg_qty) > 0);
       if (filtered) {
         prev.data.push({
           time: hhmi,
@@ -68,9 +73,9 @@ export function LogCenter() {
         prev.currAmt = filtered.prpr;
       }
 
-      // 10개 까지만 처리 (넘치면 앞에서 자르기)
-      if (prev.data.length > 10) {
-        prev.data.splice(0, prev.data.length - 10);
+      // 해상도에 비례해서 넘치면 앞에서 자르기
+      if (prev.data.length > xCountPerWidth) {
+        prev.data.splice(0, prev.data.length - xCountPerWidth);
       }
 
       newBalanceData.push(prev);
@@ -111,7 +116,7 @@ export function LogCenter() {
               ? balanceData.map((trad) => (
                 <>
                   <FlexLeft flexSize='50px'>
-                    <Text text={`[${trad.code}] ${trad.name} / 매수가 : ${trad.amt} 원 / 현재가 : ${trad.currAmt} 원`} size={16} weight={700} />
+                    <Text text={`[${trad.code}] ${trad.name} / 매수가 : ${trad.amt} 원 / 현재가 : ${trad.currAmt} 원`} size={16} weight={700} whiteSpace='pre-line' />
                   </FlexLeft>
                   {trad.data.length > 0 ? (
                     <FlexLeft flexSize='200px'>
@@ -127,23 +132,31 @@ export function LogCenter() {
                           {
                             type: 'Line', 
                             keyY: 'targetAmtHigh',
-                            lineStyle: { stroke: 'blue', strokeWidth: 2 },
+                            lineStyle: { stroke: 'red', strokeWidth: 2 },
                           },
                           {
                             type: 'Line', 
                             keyY: 'targetAmtLow',
-                            lineStyle: { stroke: 'red', strokeWidth: 2 },
+                            lineStyle: { stroke: 'blue', strokeWidth: 2 },
                           },
                         ]}
                         seriesConfig={{
                           keyX: 'time',
                           valueUnit: 5, 
-                          minValue: Math.round(trad.targetAmtLow * 0.9),
-                          maxValue: Math.round(trad.targetAmtHigh * 1.1),
+                          minValue: Math.round(trad.targetAmtLow * 0.95),
+                          maxValue: Math.round(trad.targetAmtHigh * 1.05),
+                          labelX: {
+                            renderer(val) {
+                              const str = String(val);
+                              const str2 = str.substring(str.length === 6 ? 2 : 1);
+                              return `${str2.substring(0, 2)}:${str2.substring(2, 4)}`;
+                            }, 
+                          },
+                          labelY: { extraMarginLeft: 5 },
                         }}
                         paddingTop={30}
                         paddingBottom={30}
-                        paddingLeft={35}
+                        paddingLeft={40}
                         paddingRight={10}
                       />
                     </FlexLeft>
