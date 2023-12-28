@@ -9,7 +9,11 @@ export abstract class TradingStrategy {
   // 'sell-waiting' : 매도 완료됐는지 체크
   // 'done' : 완료
   // 'error' : 처리중 오류
-  state: 'checking'|'sell-order'|'sell-waiting'|'done'|'error' = 'checking';
+  state: 'checking'|'watching-for-sell'|'sell-waiting'|'done'|'error' = 'checking';
+  
+  sellAmtHigh:number = 0;
+
+  sellAmtLow:number = 0;
 
   // 처리 메시지
   stateMessage?: string = '';
