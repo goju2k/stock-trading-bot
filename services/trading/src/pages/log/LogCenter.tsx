@@ -98,6 +98,7 @@ export function LogCenter() {
     if (filters.length > 0) {
       CheckBalance.addListener(checkRef.current);
     } else {
+      setBalanceData([]);
       CheckBalance.removeListener(checkRef.current);
     }
     
@@ -111,6 +112,9 @@ export function LogCenter() {
     <PageContainer title='작업중 내역'>
       <ContentBox>
         <FlexLeft flexAlign='left-top' flexGap='5px' flexSize='fit-content' flexHeight='fit-content'>
+          <Flex flexSize='20px' flexAlign='center-top'>
+            <div style={{ width: 'calc(100% - 15px)', height: '1px', border: '1px solid lightgray' }} />
+          </Flex>
           {
             balanceData.length > 0 
               ? balanceData.map((trad) => (
@@ -160,7 +164,10 @@ export function LogCenter() {
                         paddingRight={10}
                       />
                     </FlexLeft>
-                  ) : <Flex flexAlign='center'><Text text='No Data' /></Flex>}
+                  ) : <Flex flexAlign='center'><Text text='아직 매수 전입니다.' /></Flex>}
+                  <Flex flexSize='50px' flexAlign='center'>
+                    <div style={{ width: 'calc(100% - 15px)', height: '1px', border: '1px solid lightgray' }} />
+                  </Flex>
                 </>
               ))
               : <Flex flexAlign='center'><Text text='No Data' size={16} /></Flex>
