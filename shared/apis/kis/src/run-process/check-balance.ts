@@ -1,6 +1,6 @@
-import { InquireBalance, ResponseInquireBalance } from '../trading';
+import { InquireBalance, ResponseInquireBalance, ResponseInquireBalanceSummary } from '../trading';
 
-export type CheckBalanceListener = (data: ResponseInquireBalance[]) => void;
+export type CheckBalanceListener = (data: ResponseInquireBalance[], summary: ResponseInquireBalanceSummary) => void;
 
 class ProcessCheckBalance {
 
@@ -13,7 +13,7 @@ class ProcessCheckBalance {
       const data = await InquireBalance();
       this.listeners.forEach((func) => {
         try {
-          func(data.output1 || []);  
+          func(data.output1 || [], data.output2[0] || {});
         } catch (e) {
           console.log(e);    
         }

@@ -14,6 +14,7 @@ export interface RequestInquireBalance {
   PRCS_DVSN:string; // 처리구분 String Y 2 00 : 전일매매포함
   CTX_AREA_FK100:string; // 연속조회검색조건100 String Y 100 공란 : 최초 조회시
   CTX_AREA_NK100:string; // 연속조회키100 String Y 100 공란 : 최초 조회시
+  COST_ICLD_YN:string; // 비용포함여부
 }
 
 export interface ResponseInquireBalance {
@@ -24,6 +25,12 @@ export interface ResponseInquireBalance {
   pchs_avg_pric: string; // 매입평균가격
   evlu_pfls_rt: string; // 평가손익율
   evlu_erng_rt: string; // 평가수익율
+  evlu_pfls_amt: string; // 평가손익금액
+}
+
+export interface ResponseInquireBalanceSummary {
+  rlzt_pfls: string; // 실현손익
+  rlzt_erng_rt: string; // 실현손익율
 }
 
 const defaultRequest:RequestInquireBalance = {
@@ -38,14 +45,15 @@ const defaultRequest:RequestInquireBalance = {
   PRCS_DVSN: '01', // 처리구분 String Y 2 00 : 전일매매포함 01 : 전일매매미포함
   CTX_AREA_FK100: '', // 연속조회검색조건100 String Y 100 공란 : 최초 조회시
   CTX_AREA_NK100: '', // 연속조회키100 String Y 100 공란 : 최초 조회시
+  COST_ICLD_YN: 'Y',
 };
 
 export async function InquireBalance() {
-  const res = await KisApi.instance.get<KisResponseMulti<ResponseInquireBalance[]>>(
-    'trading/inquire-balance',
+  const res = await KisApi.instance.get<KisResponseMulti<ResponseInquireBalance[], ResponseInquireBalanceSummary[]>>(
+    'trading/inquire-balance-rlz-pl',
     {
       params: defaultRequest,
-      headers: { tr_id: 'TTTC8434R' },
+      headers: { tr_id: 'TTTC8494R' },
     },
   );
   return res?.data || { output: [] };

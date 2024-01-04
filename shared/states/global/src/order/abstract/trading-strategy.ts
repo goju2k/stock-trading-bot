@@ -14,6 +14,8 @@ export abstract class TradingStrategy {
   sellAmtHigh:number = 0;
 
   sellAmtLow:number = 0;
+  
+  highOrLow:'high'|'low'|'' = '';
 
   // 처리 메시지
   stateMessage?: string = '';

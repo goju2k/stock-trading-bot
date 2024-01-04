@@ -77,7 +77,7 @@ export function Main() {
             newOrder.trading = [];
             removeOrderToday();
             OrderListStore.removeAll();
-            PassedListStore.removeAll();
+            // PassedListStore.removeAll();
           }
 
           // 조건에 맞는 대상 종목 중 가장 위에것만 취하기 (1건씩만)
@@ -136,7 +136,16 @@ export function Main() {
 
                 // 매매전략 실행
                 newOrder.trading = [ ...newOrder.trading ];
-                newOrder.trading.push(new SellByPercent(target.mksc_shrn_iscd, appConfig.highPercentage, appConfig.lowPercentage)); // 상위 3% 하위 -4% 매도 전략
+                
+                const callback = () => {
+                  const [ orderList, setOrderList ] = orderListRef.current;
+                  // newOrder.trading.splice(newOrder.trading.indexOf(trad), 1); => 제거는 하지 말자
+                  orderList.trading = [ ...orderList.trading ];
+                  setOrderList({ ...orderList });
+                };
+
+                const trad = new SellByPercent(target.mksc_shrn_iscd, appConfig.highPercentage, appConfig.lowPercentage, callback);
+                newOrder.trading.push(trad);
                 setOrderList({ ...newOrder });
 
               }
@@ -221,6 +230,7 @@ export function Main() {
     return per > 8 && inc > 100;
   }
   function targetRowClassName(item:ResponseVolumeRank) {
+    const [ orderList ] = orderListRef.current;
     if (orderList.trading.filter((trad) => trad.code === item.mksc_shrn_iscd 
     && trad.state !== 'done' 
     && trad.state !== 'error').length > 0) {

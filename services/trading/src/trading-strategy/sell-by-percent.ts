@@ -9,10 +9,13 @@ export class SellByPercent extends TradingStrategy {
 
   orderInfo?:ResponseInquireBalance;
 
-  constructor(code:string, highPercent:number, lowPercent:number) {
+  callbackWithDone?:()=>void;
+
+  constructor(code:string, highPercent:number, lowPercent:number, callbackWithDone?:()=>void) {
     super(code);
     this.highPercent = highPercent;
     this.lowPercent = lowPercent;
+    this.callbackWithDone = callbackWithDone;
     this.process();
   }
 
@@ -50,13 +53,21 @@ export class SellByPercent extends TradingStrategy {
       // 타겟 가격 체크
       const check:CheckBalanceListener = async (data) => {
 
+        // 잔고가 없는 경우 수동매매된 걸로 보고 프로세스 종료 처리
+        if (!hasBalance(data, this.code)) {
+          CheckBalance.removeListener(check);
+          this.done();
+          this.stateMessage += ' / 수동';
+        }
+
         // 대상금액 매칭된 경우 (high & low) 시장가 매도 주문
+        const checkHigh = checkTargetBalance(data, this.code, highAmt, true); // high target
+        const checkLow = checkTargetBalance(data, this.code, lowAmt, false); // low target
         if (this.orderInfo 
-        && (
-          checkTargetBalance(data, this.code, highAmt, true) // high target
-        || checkTargetBalance(data, this.code, lowAmt, false) // low target
-        )
+        && (checkHigh || checkLow)
         ) { 
+
+          this.highOrLow = checkHigh ? 'high' : 'low';
           
           // listener 제거
           CheckBalance.removeListener(check);
@@ -101,7 +112,10 @@ export class SellByPercent extends TradingStrategy {
     this.state = 'sell-waiting';
     this.stateMessage = '시장가 매도중';
     const check:CheckBalanceListener = async (data) => {
-      if (!hasBalance(data, this.code)) { // 판매완료인 경우 완료처리
+      const [ filtered ] = data.filter((item) => item.pdno === this.code);
+
+      // 판매완료인 경우 완료처리
+      if (filtered && Number(filtered.hldg_qty) <= 0) { 
         this.done();
         CheckBalance.removeListener(check);
       }
@@ -113,6 +127,7 @@ export class SellByPercent extends TradingStrategy {
   done(): void {
     this.state = 'done';
     this.stateMessage = '(종료) 판매완료';
+    this.callbackWithDone && this.callbackWithDone();
     removeOrderToday(); // 오늘 주문내역을 초기화 해서 다음 주문으로 이어지도록 처리
   }
 
@@ -125,8 +140,6 @@ export class SellByPercent extends TradingStrategy {
 // 현재가 체크
 const checkTargetBalance = (data: ResponseInquireBalance[], code:string, targetAmt:number, high:boolean) => {
   const [ filtered ] = data.filter((item) => item.pdno === code);
-
-  // 잔고가 0 이상인지 체크
   return !!(filtered && (high ? Number(filtered.prpr) >= targetAmt : Number(filtered.prpr) <= targetAmt));
 };
 
