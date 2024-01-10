@@ -8,6 +8,7 @@ export interface AppConfigBase {
   'highPercentage': number;
   'lowPercentage': number;
   'maxOrderAmt': number;
+  'minTargetAmt': number;
 }
 
 export const AppConfigStore = new ObjectBasedLocalStore<AppConfigBase>('app-config');
@@ -21,6 +22,7 @@ if (Object.getOwnPropertyNames(defaultValue).length === 0) {
     highPercentage: 3,
     lowPercentage: 4,
     maxOrderAmt: 30000,
+    minTargetAmt: 4000,
   };
 }
 

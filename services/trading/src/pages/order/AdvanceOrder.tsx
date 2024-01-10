@@ -18,7 +18,7 @@ export function AdvanceOrder() {
       <ContentBox>
         <Section>
           <Flex flexGap='20px'>
-            <Flex flexSize='160px'>
+            <Flex flexSize='fit-content'>
               <Text text='앱 설정' size={16} weight={700} />
               <Table
                 headers={[
@@ -31,10 +31,11 @@ export function AdvanceOrder() {
                 columnCountPerRow={1}
               />
             </Flex>
-            <Flex flexSize='160px'>
+            <Flex flexSize='fit-content'>
               <Text text='매매 설정' size={16} weight={700} />
               <Table
                 headers={[
+                  { label: '주식 최소금액 (원)', targetId: 'minTargetAmt', formType: 'input', editable: true, maxLength: 6 },
                   { label: '최대 매수금액 (원)', targetId: 'maxOrderAmt', formType: 'input', editable: true, maxLength: 6 },
                   { label: '상위 매도 값 (%)', targetId: 'highPercentage', formType: 'input', editable: true, maxLength: 2 },
                   { label: '하위 매도 값 (%)', targetId: 'lowPercentage', formType: 'input', editable: true, maxLength: 2 },
