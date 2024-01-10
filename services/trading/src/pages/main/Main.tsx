@@ -38,8 +38,8 @@ export function Main() {
   const [ data, setData, refresh ] = useKisApi(VolumeRank, {
     request: {
       params: {
-        FID_INPUT_PRICE_1: 2000,
-        FID_INPUT_PRICE_2: 40000,
+        FID_INPUT_PRICE_1: appConfig.minTargetAmt || 4000,
+        FID_INPUT_PRICE_2: appConfig.maxOrderAmt || 40000,
         FID_VOL_CNT: 1000000,
       },
     },
@@ -151,6 +151,10 @@ export function Main() {
               }
             });
           }
+          
+          // 한번 조회된것은 모두 제외 (처음 리스트업 되는 매물만 잡기!!!)
+          PassedListStore.setAll((response?.output || []).map((item) => item.mksc_shrn_iscd));
+
         } else {
           handleAutoModeClick();
           setMessage({

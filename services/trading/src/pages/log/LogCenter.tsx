@@ -105,7 +105,7 @@ export function LogCenter() {
 
     });
 
-    newBalanceData.sort((a, b) => (a.hasBalance > b.hasBalance ? 1 : -1));
+    newBalanceData.sort((a, b) => (a.hasBalance > b.hasBalance ? -1 : 1));
 
     setBalanceData(newBalanceData);
 
@@ -119,11 +119,11 @@ export function LogCenter() {
     orderListRef.current = orderList.trading;
 
     // 잔고조회 listener add / remove
-    const filters = orderList.trading.filter((trad) => trad.state === 'watching-for-sell');
+    const filters = orderList.trading.filter((trad) => trad.state === 'watching-for-sell' || trad.state === 'sell-waiting');
     if (filters.length > 0) {
       CheckBalance.addListener(checkRef.current);
     } else {
-      setBalanceData([]);
+      // setBalanceData([]);
       CheckBalance.removeListener(checkRef.current);
     }
 
@@ -131,13 +131,13 @@ export function LogCenter() {
       CheckBalance.removeListener(checkRef.current);
     };
 
-  }, [ orderList ]);
+  }, [ orderList.trading ]);
 
   return (
     <PageContainer title='작업중 내역'>
       <ContentBox>
         <FlexLeft flexAlign='left-top' flexGap='5px' flexSize='fit-content' flexHeight='fit-content'>
-          <Flex flexSize='60px'>
+          <Flex flexSize='60px' flexPadding='0px 10px'>
             <Text text='오늘의 수익' size={16} weight={700} whiteSpace='pre-line' />
             <Text
               text={`${summary.resultAmt} / ${summary.resultRate}`} 
@@ -148,7 +148,7 @@ export function LogCenter() {
             />
           </Flex>
           <Flex flexSize='20px' flexAlign='center-top'>
-            <div style={{ width: 'calc(100% - 15px)', height: '1px', border: '1px solid lightgray' }} />
+            <div style={{ width: '100%', height: '1px', border: '1px solid lightgray' }} />
           </Flex>
           {
             balanceData.length > 0 
@@ -165,11 +165,11 @@ export function LogCenter() {
 
                 return (
                   <>
-                    <FlexLeft flexSize='50px'>
+                    <FlexLeft flexSize='fit-content' flexPadding='0px 10px'>
                       <Text text={text} color={trad.hasBalance ? 'black' : '#979797'} size={16} weight={700} whiteSpace='pre-line' />
                     </FlexLeft>
                     {trad.data.length > 0 ? (
-                      <FlexLeft flexSize='200px'>
+                      <FlexLeft flexSize='200px' flexPadding='0px 10px'>
                         <LineChart
                           data={trad.data}
                           series={[
@@ -210,9 +210,9 @@ export function LogCenter() {
                           paddingRight={10}
                         />
                       </FlexLeft>
-                    ) : <Flex flexAlign='center'><Text text='아직 매수 전입니다.' /></Flex>}
+                    ) : <Flex flexAlign='center' flexSize='60px'><Text text='아직 매수 전입니다.' /></Flex>}
                     <Flex flexSize='50px' flexAlign='center'>
-                      <div style={{ width: 'calc(100% - 15px)', height: '1px', border: '1px solid lightgray' }} />
+                      <div style={{ width: '100%', height: '1px', border: '1px solid lightgray' }} />
                     </Flex>
                   </>
                 );
