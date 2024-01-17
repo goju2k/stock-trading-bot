@@ -1,7 +1,8 @@
 import { Button, Flex, Grid, GridHeader, LineChart, Text } from '@mint-ui/core';
 import { OrderCache, ResponseVolumeRank, VolumeRank } from '@shared/apis/kis';
 import { useKisApi } from '@shared/hooks/api-hook';
-import { AppConfig, OrderList, OrderListStore, PassedListStore, getOrderToday, removeOrderToday } from '@shared/states/global';
+import { useStateRef } from '@shared/hooks/util-hook';
+import { AppConfig, OrderDate, OrderListStore, OrderStocks, OrderTrading, PassedListStore, getOrderToday, removeOrderToday } from '@shared/states/global';
 import { ContentBox, PageContainer, Section } from '@shared/ui/design-system-v1';
 import { DateUtil } from '@shared/utils/date';
 import { useEffect, useRef, useState } from 'react';
@@ -28,11 +29,14 @@ export function Main() {
   }, [ isOpen ]);
 
   // 주문 리스트
-  const [ orderList, setOrderList ] = useRecoilState(OrderList);
-  const orderListRef = useRef([ orderList, setOrderList ] as [typeof orderList, typeof setOrderList]);
-  useEffect(() => {
-    orderListRef.current = [ orderList, setOrderList ];
-  }, [ orderList ]);
+  const [ orderDate, setOrderDate ] = useRecoilState(OrderDate);
+  const orderDateRef = useStateRef(orderDate);
+
+  const [ orderStocks, setOrderStocks ] = useRecoilState(OrderStocks);
+  const orderStocksRef = useStateRef(orderStocks);
+
+  const [ orderTrading, setOrderTrading ] = useRecoilState(OrderTrading);
+  const orderTradingRef = useStateRef(orderTrading);
 
   // 거래량 데이터
   const [ data, setData, refresh ] = useKisApi(VolumeRank, {
@@ -59,8 +63,9 @@ export function Main() {
         && appConfig.workingEnd >= todayHHMi
         ) {
 
-          const [ orderList, setOrderList ] = orderListRef.current;
-          const newOrder = { ...orderList };
+          let orderDate = orderDateRef.current;
+          let orderStocks = orderStocksRef.current;
+          let orderTrading = orderTradingRef.current;
 
           // 오늘 주문한 상태이면 현재 조회 대상들은 모두 pass 대상으로 처리
           // (주문을 처리중인 상태에서 조회된 다른 종목들은 상품가치가 떨어짐. 새로 튀는것을 잡아야함)
@@ -71,10 +76,13 @@ export function Main() {
           }
 
           // 오늘이 아니면 초기화
-          if (today !== newOrder.date) {
-            newOrder.date = today;
-            newOrder.stocks = [];
-            newOrder.trading = [];
+          if (today !== orderDate) {
+            orderDate = today;
+            orderStocks = [];
+            orderTrading = [];
+            setOrderDate(orderDate);
+            setOrderStocks(orderStocks);
+            setOrderTrading(orderTrading);
             removeOrderToday();
             OrderListStore.removeAll();
             // PassedListStore.removeAll();
@@ -88,13 +96,15 @@ export function Main() {
           if (target) {
 
             // 주문 리스트 갱신
-            newOrder.stocks = [ ...newOrder.stocks ];
-            newOrder.stocks.push(target.mksc_shrn_iscd);
-            setOrderList({ ...newOrder });
-            PassedListStore.set(target.mksc_shrn_iscd);
+            orderStocks = [ ...orderStocks ];
+            orderStocks.push(target.mksc_shrn_iscd);
+            setOrderStocks(orderStocks);
 
             // 오늘의 주문 종목으로 기록
             OrderListStore.set(target.mksc_shrn_iscd);
+
+            // pass list 에 set
+            PassedListStore.set(target.mksc_shrn_iscd);
 
             // 오늘 주문 flag 처리
             //  => 여러개의 주문을 처리하기 위해 더이상 주문을 막지 않는다.
@@ -135,18 +145,13 @@ export function Main() {
                 setMessage({ content: msg });
 
                 // 매매전략 실행
-                newOrder.trading = [ ...newOrder.trading ];
-                
                 const callback = () => {
-                  const [ orderList, setOrderList ] = orderListRef.current;
                   // newOrder.trading.splice(newOrder.trading.indexOf(trad), 1); => 제거는 하지 말자
-                  orderList.trading = [ ...orderList.trading ];
-                  setOrderList({ ...orderList });
+                  setOrderTrading([ ...orderTradingRef.current ]);
                 };
 
                 const trad = new SellByPercent(target.mksc_shrn_iscd, appConfig.highPercentage, appConfig.lowPercentage, callback);
-                newOrder.trading.push(trad);
-                setOrderList({ ...newOrder });
+                setOrderTrading([ ...orderTradingRef.current, trad ]);
 
               }
             });
@@ -200,16 +205,23 @@ export function Main() {
   };
 
   const handleWorkReset = () => {
-    const [ orderList ] = orderListRef.current;
-    if (orderList.trading.filter((trad) => trad.state !== 'done').length > 0) {
+    
+    if (orderTradingRef.current.filter((trad) => trad.state !== 'done').length > 0) {
       setMessage({ content: '아직 처리중인 주문이 있습니다.' });
       return;
     }
+
     const today = DateUtil.getToday();
     removeOrderToday();
-    setOrderList({ date: today, stocks: [], trading: [] });
+
+    setOrderDate(today);
+    setOrderStocks([]);
+    setOrderTrading([]);
+    
     OrderListStore.removeAll();
+
     setMessage({ content: '주문내역이 초기화되었습니다.' });
+
   };
 
   const handleExcludeClick = () => {
@@ -234,13 +246,13 @@ export function Main() {
     return per > 8 && inc > 100;
   }
   function targetRowClassName(item:ResponseVolumeRank) {
-    const [ orderList ] = orderListRef.current;
-    if (orderList.trading.filter((trad) => trad.code === item.mksc_shrn_iscd 
+    
+    if (orderTradingRef.current.filter((trad) => trad.code === item.mksc_shrn_iscd 
     && trad.state !== 'done' 
     && trad.state !== 'error').length > 0) {
       return 'mint-grid-processing-row';
     }
-    if (orderList.stocks.includes(item.mksc_shrn_iscd)) {
+    if (orderStocksRef.current.includes(item.mksc_shrn_iscd)) {
       return 'mint-grid-ordered-row';
     }
     return isTargetRow(item) ? 'mint-grid-target-row' : '';

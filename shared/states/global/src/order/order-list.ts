@@ -10,8 +10,17 @@ export interface OrderListInterface {
   trading:TradingStrategy[];
 }
 
-export const OrderList = atom<OrderListInterface>({
-  key: 'order-list',
-  default: { date: '', stocks: OrderListStore.get(), trading: [] },
-  dangerouslyAllowMutability: true,
+export const OrderDate = atom<string>({
+  key: 'order-list/date',
+  default: '',
+});
+
+export const OrderStocks = atom<string[]>({
+  key: 'order-list/stocks',
+  default: OrderListStore.get(),
+});
+
+export const OrderTrading = atom<TradingStrategy[]>({
+  key: 'order-list/trading',
+  default: [],
 });

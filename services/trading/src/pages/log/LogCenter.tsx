@@ -1,9 +1,10 @@
 import { Flex, LineChart, Text } from '@mint-ui/core';
 import { CheckBalance, CheckBalanceListener } from '@shared/apis/kis';
-import { OrderList } from '@shared/states/global';
+import { useStateRef } from '@shared/hooks/util-hook';
+import { OrderTrading } from '@shared/states/global';
 import { ContentBox, FlexLeft, PageContainer } from '@shared/ui/design-system-v1';
 import { DateUtil } from '@shared/utils/date';
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { useRecoilValue } from 'recoil';
 
 interface LogSummary {
@@ -60,7 +61,7 @@ export function LogCenter() {
     const xCountPerWidth = getXCountPerWidth();
 
     const newBalanceData:typeof balanceData = [];
-    orderListRef.current.forEach((trad) => {
+    orderTradingRef.current.forEach((trad) => {
       
       // 기존 data 있는지 체크
       let [ prev ] = balanceDataRef.current.filter((bal) => bal.code === trad.code);
@@ -105,22 +106,19 @@ export function LogCenter() {
 
     });
 
-    newBalanceData.sort((a, b) => (a.hasBalance > b.hasBalance ? -1 : 1));
+    newBalanceData.sort((a, b) => (a.hasBalance > b.hasBalance ? 1 : -1));
 
     setBalanceData(newBalanceData);
 
   });
     
   // 주문 리스트
-  const orderList = useRecoilValue(OrderList);
-  const orderListRef = useRef(orderList.trading);
+  const orderTrading = useRecoilValue(OrderTrading);
+  const orderTradingRef = useStateRef(orderTrading);
   useEffect(() => {
 
-    orderListRef.current = orderList.trading;
-
     // 잔고조회 listener add / remove
-    const filters = orderList.trading.filter((trad) => trad.state === 'watching-for-sell' || trad.state === 'sell-waiting');
-    if (filters.length > 0) {
+    if (orderTrading.length > 0) {
       CheckBalance.addListener(checkRef.current);
     } else {
       // setBalanceData([]);
@@ -131,7 +129,7 @@ export function LogCenter() {
       CheckBalance.removeListener(checkRef.current);
     };
 
-  }, [ orderList.trading ]);
+  }, [ orderTrading ]);
 
   return (
     <PageContainer title='작업중 내역'>
@@ -164,7 +162,7 @@ export function LogCenter() {
                 }
 
                 return (
-                  <>
+                  <Fragment key={`balance-${trad.code}`}>
                     <FlexLeft flexSize='fit-content' flexPadding='0px 10px'>
                       <Text text={text} color={trad.hasBalance ? 'black' : '#979797'} size={16} weight={700} whiteSpace='pre-line' />
                     </FlexLeft>
@@ -214,7 +212,7 @@ export function LogCenter() {
                     <Flex flexSize='50px' flexAlign='center'>
                       <div style={{ width: '100%', height: '1px', border: '1px solid lightgray' }} />
                     </Flex>
-                  </>
+                  </Fragment>
                 );
               })
               : <Flex flexAlign='center'><Text text='No Data' size={16} /></Flex>

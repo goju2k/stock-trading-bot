@@ -1,9 +1,10 @@
-import { Text } from '@mint-ui/core';
-import { OrderList, PassedListStore } from '@shared/states/global';
+import { Button, Text } from '@mint-ui/core';
+import { useRerender } from '@shared/hooks/util-hook';
+import { OrderStocks, OrderTrading, PassedListStore } from '@shared/states/global';
 import { useRecoilValue } from 'recoil';
 import styled from 'styled-components';
 
-import { Flex, FlexCenter, FlexLeft } from '../Base/Flex';
+import { Flex, FlexBetween, FlexCenter, FlexLeft } from '../Base/Flex';
 
 const SidePanelContainer = styled(Flex).withConfig<{sideWidth:number;}>({ shouldForwardProp: (prop) => String(prop) !== 'sideWidth' })`
   position: fixed;
@@ -33,8 +34,14 @@ export interface SidePanelProps {
   sideWidth:number;
 }
 export function SidePanel({ open, sideWidth }:SidePanelProps) {
-  const orderList = useRecoilValue(OrderList);
+  
+  const orderStocks = useRecoilValue(OrderStocks);
+  const orderTrading = useRecoilValue(OrderTrading);
+  
   const excludeList = PassedListStore.get();
+
+  const rerender = useRerender();
+
   return (
     <SidePanelContainer
       onClick={(e) => {
@@ -49,8 +56,8 @@ export function SidePanel({ open, sideWidth }:SidePanelProps) {
       </FlexCenter>
       <FlexLeft flexAlign='left-top' flexGap='5px' flexSize='fit-content' flexHeight='fit-content'>
         {
-          orderList.trading.length > 0 
-            ? orderList.trading.map((trad) => (
+          orderTrading.length > 0 
+            ? orderTrading.map((trad) => (
               <Text key={`log-${trad.code}`} text={trad.toString()} size={14} weight={500} whiteSpace='pre-line' textWidth='100%' />
             ))
             : <Text text='없음' size={14} weight={500} />
@@ -61,16 +68,24 @@ export function SidePanel({ open, sideWidth }:SidePanelProps) {
       </FlexCenter>
       <FlexLeft flexAlign='left-top' flexGap='5px' flexSize='fit-content' flexHeight='fit-content'>
         {
-          orderList.stocks.length > 0 
-            ? orderList.stocks.map((code) => (
+          orderStocks.length > 0 
+            ? orderStocks.map((code) => (
               <Text key={`log-${code}`} text={code} size={14} weight={500} whiteSpace='pre-line' textWidth='100%' />
             ))
             : <Text text='없음' size={14} weight={500} />
         }
       </FlexLeft>
-      <FlexCenter flexSize='50px'>
+      
+      <FlexBetween rowDirection flexSize='50px'>
         <Text text='처리 제외 종목' size={16} weight={700} />
-      </FlexCenter>
+        <Button onClick={() => {
+          PassedListStore.removeAll();
+          rerender();
+        }}
+        >초기화
+        </Button>
+      </FlexBetween>
+      
       <FlexLeft flexAlign='left-top' flexGap='5px' flexSize='fit-content' flexHeight='fit-content'>
         {
           excludeList.length > 0 

@@ -18,6 +18,7 @@
       "@services/trading": ["services/trading/src/index.ts"],
       "@shared/apis/kis": ["shared/apis/kis/src/index.ts"],
       "@shared/hooks/api-hook": ["shared/hooks/api-hook/src/index.ts"],
+      "@shared/hooks/util-hook": ["shared/hooks/util-hook/src/index.ts"],
       "@shared/states/global": ["shared/states/global/src/index.ts"],
       "@shared/ui/design-system-v1": [
         "shared/ui/design-system-v1/src/index.ts"

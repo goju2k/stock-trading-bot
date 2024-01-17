@@ -39,7 +39,7 @@ class ProcessCheckBalance {
   }
 
   addListener(func: CheckBalanceListener) {
-    this.listeners.add(func);
+    !this.listeners.has(func) && this.listeners.add(func);
   }
 
   removeListener(func: CheckBalanceListener) {
