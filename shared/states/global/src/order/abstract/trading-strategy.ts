@@ -1,8 +1,13 @@
+import { ResponseInquireBalance } from '@shared/apis/kis';
+
 export abstract class TradingStrategy {
   
   // 종목 코드
   code!: string;
 
+  // 주문 정보
+  orderInfo?:ResponseInquireBalance;
+  
   // 처리 상태
   // 'checking' : 매수 완료됐는지 체크
   // 'sell-order' : 수익/손해 퍼센티지에 따라 각각 매도 주문

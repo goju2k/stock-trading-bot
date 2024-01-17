@@ -1,8 +1,8 @@
-import { Flex, LineChart, Text } from '@mint-ui/core';
-import { CheckBalance, CheckBalanceListener } from '@shared/apis/kis';
+import { Button, Flex, LineChart, Text } from '@mint-ui/core';
+import { CheckBalance, CheckBalanceListener, OrderCache } from '@shared/apis/kis';
 import { useStateRef } from '@shared/hooks/util-hook';
 import { OrderTrading } from '@shared/states/global';
-import { ContentBox, FlexLeft, PageContainer } from '@shared/ui/design-system-v1';
+import { ContentBox, FlexLeft, FlexRight, PageContainer } from '@shared/ui/design-system-v1';
 import { DateUtil } from '@shared/utils/date';
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { useRecoilValue } from 'recoil';
@@ -17,6 +17,7 @@ interface LogData {
   name:string;
   amt:string;
   currAmt:string;
+  stockCount:number;
   targetAmtHigh:number;
   targetAmtLow:number;
   highOrLow:string;
@@ -76,6 +77,7 @@ export function LogCenter() {
           data: [],
           hasBalance: true,
           highOrLow: trad.highOrLow,
+          stockCount: Number(trad.orderInfo ? trad.orderInfo.hldg_qty : 0),
         };
       }
 
@@ -153,7 +155,7 @@ export function LogCenter() {
               ? balanceData.map((trad) => {
                 
                 const diffAmt = Number(trad.currAmt) - Number(trad.amt);
-                const diffPercent = Number((diffAmt / Number(trad.currAmt)) * 100).toFixed(1);
+                const diffPercent = Number(trad.currAmt) === 0 ? 0 : Number((diffAmt / Number(trad.currAmt)) * 100).toFixed(1);
                 let text = `[${trad.code}] ${trad.name} / 매수가 : ${trad.amt} 원 / 현재가 : ${trad.currAmt} 원 / 수익율 : ${diffPercent} %`;
                 let fillColor = diffAmt > 0 ? 'orange' : 'lightblue';
                 if (!trad.hasBalance) {
@@ -164,6 +166,26 @@ export function LogCenter() {
                 return (
                   <Fragment key={`balance-${trad.code}`}>
                     <FlexLeft flexSize='fit-content' flexPadding='0px 10px'>
+                      {!trad.hasBalance && (
+                        <FlexRight>
+                          <Button onClick={() => {
+
+                            // 매도주문 - 시장가
+                            OrderCache({
+                              body: {
+                                BUY: false, 
+                                PDNO: trad.code,
+                                ORD_QTY: String(trad.stockCount),
+                                ORD_DVSN: '01', // 01: 시장가
+                                ORD_UNPR: '0', 
+                              },
+                            });
+    
+                          }}
+                          >강제매도
+                          </Button>
+                        </FlexRight>
+                      )}
                       <Text text={text} color={trad.hasBalance ? 'black' : '#979797'} size={16} weight={700} whiteSpace='pre-line' />
                     </FlexLeft>
                     {trad.data.length > 0 ? (

@@ -7,8 +7,6 @@ export class SellByPercent extends TradingStrategy {
 
   lowPercent!:number;
 
-  orderInfo?:ResponseInquireBalance;
-
   callbackWithDone?:()=>void;
 
   constructor(code:string, highPercent:number, lowPercent:number, callbackWithDone?:()=>void) {
