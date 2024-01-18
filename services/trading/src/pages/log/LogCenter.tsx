@@ -108,7 +108,7 @@ export function LogCenter() {
 
     });
 
-    newBalanceData.sort((a, b) => (a.hasBalance > b.hasBalance ? 1 : -1));
+    newBalanceData.sort((a, b) => (a.hasBalance > b.hasBalance ? -1 : 1));
 
     setBalanceData(newBalanceData);
 
@@ -120,7 +120,7 @@ export function LogCenter() {
   useEffect(() => {
 
     // 잔고조회 listener add / remove
-    if (orderTrading.length > 0) {
+    if (orderTrading.filter((t) => t.state !== 'done' && t.state !== 'error').length > 0) {
       CheckBalance.addListener(checkRef.current);
     } else {
       // setBalanceData([]);
@@ -166,7 +166,7 @@ export function LogCenter() {
                 return (
                   <Fragment key={`balance-${trad.code}`}>
                     <FlexLeft flexSize='fit-content' flexPadding='0px 10px'>
-                      {!trad.hasBalance && (
+                      {trad.hasBalance && (
                         <FlexRight>
                           <Button onClick={() => {
 
