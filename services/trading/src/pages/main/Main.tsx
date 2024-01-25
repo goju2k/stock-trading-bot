@@ -44,7 +44,7 @@ export function Main() {
       params: {
         FID_INPUT_PRICE_1: appConfig.minTargetAmt || 4000,
         FID_INPUT_PRICE_2: appConfig.maxOrderAmt || 40000,
-        FID_VOL_CNT: 1000000,
+        FID_VOL_CNT: appConfig.minTradingCount || 1000000,
       },
     },
     callback(response) {
@@ -243,7 +243,7 @@ export function Main() {
   function isTargetRow(item:ResponseVolumeRank) {
     const per = Number(item.prdy_ctrt);
     const inc = Number(item.vol_inrt);
-    return per > 8 && inc > 100;
+    return per > appConfig.targetUpRating && inc > appConfig.targetIncreaseRate;
   }
   function targetRowClassName(item:ResponseVolumeRank) {
     

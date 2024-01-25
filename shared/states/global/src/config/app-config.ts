@@ -9,6 +9,9 @@ export interface AppConfigBase {
   'lowPercentage': number;
   'maxOrderAmt': number;
   'minTargetAmt': number;
+  'minTradingCount': number;
+  'targetUpRating': number;
+  'targetIncreaseRate': number;
 }
 
 export const AppConfigStore = new ObjectBasedLocalStore<AppConfigBase>('app-config');
@@ -23,6 +26,9 @@ if (Object.getOwnPropertyNames(defaultValue).length === 0) {
     lowPercentage: 4,
     maxOrderAmt: 30000,
     minTargetAmt: 4000,
+    minTradingCount: 1000000,
+    targetUpRating: 15,
+    targetIncreaseRate: 100,
   };
 }
 
