@@ -4,6 +4,8 @@ import { AppContainer, ComponentRoute, ComponentRoutes, GlobalStyleV1, MainToast
 import { useEffect } from 'react';
 import { RecoilRoot } from 'recoil';
 
+import { SideElement } from './components/SideElement';
+
 export function App() {
 
   // 잔고조회 프로세스 시작
@@ -19,7 +21,7 @@ export function App() {
       <GlobalStyleV1 />
       <RecoilRoot>
         <MainToastContextProvider>
-          <AppContainer>
+          <AppContainer sidePanel={<SideElement />}>
             <ComponentRoutes>
               <ComponentRoute path='advance-order' component={<AdvanceOrder />} />
               <ComponentRoute path='log-center' component={<LogCenter />} />
