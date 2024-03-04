@@ -1,25 +1,16 @@
 import { Text } from '@mint-ui/core';
-import { useEffect, useState } from 'react';
 import styled from 'styled-components';
 
 import { FlexBetween, FlexCenter, FlexLeft, FlexRight } from './Base/Flex';
 import { NaviButton } from './Button/NaviButton';
-import { SidePanel } from './SidePanel/SidePanel';
+import { useSideOpen } from './SidePanel/SidePanel';
 
 import { ComponentRouteLink } from '../routes/ComponentRouteLink';
 
 export function Footer() {
-  const [ sideOpen, setSideOpen ] = useState(false);
-
-  useEffect(() => {
-    const sideCloseOnClick = () => {
-      setSideOpen(false);
-    };
-    window.addEventListener('click', sideCloseOnClick);
-    return () => {
-      window.removeEventListener('click', sideCloseOnClick);
-    };
-  }, []);
+  
+  // side context
+  const sideOpen = useSideOpen();
 
   return (
     <FlexBetween rowDirection flexSize='40px'>
@@ -30,12 +21,11 @@ export function Footer() {
       </FlexLeft>
       <FlexRight flexSize='40px'>
         <NaviButton click={(e) => {
-          setSideOpen(true);
+          sideOpen(true);
           e.stopPropagation();
         }}
         />
       </FlexRight>
-      <SidePanel sideWidth={250} open={sideOpen} />
     </FlexBetween>
   );
 }

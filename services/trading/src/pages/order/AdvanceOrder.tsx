@@ -1,10 +1,13 @@
 import { Button, Flex, Table, Text } from '@mint-ui/core';
 import { AppConfig } from '@shared/states/global';
-import { ContentBox, FlexRight, PageContainer, Section } from '@shared/ui/design-system-v1';
+import { ContentBox, FlexRight, PageContainer, Section, useShowToastHook } from '@shared/ui/design-system-v1';
 import { useEffect, useState } from 'react';
 import { useRecoilState } from 'recoil';
 
 export function AdvanceOrder() {
+
+  // toast message
+  const setMessage = useShowToastHook();
 
   const [ config, setConfig ] = useRecoilState(AppConfig);
   useEffect(() => {
@@ -64,6 +67,7 @@ export function AdvanceOrder() {
             <FlexRight flexSize='50px'>
               <Button onClick={() => {
                 setConfig(configState);
+                setMessage('설정이 저장되었습니다.');
               }}
               >설정 저장
               </Button>

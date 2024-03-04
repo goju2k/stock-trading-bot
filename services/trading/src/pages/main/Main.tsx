@@ -1,213 +1,64 @@
-import { Button, Flex, Grid, GridHeader, LineChart, Text } from '@mint-ui/core';
-import { OrderCache, ResponseVolumeRank, VolumeRank } from '@shared/apis/kis';
-import { useKisApi } from '@shared/hooks/api-hook';
+import { Button, Flex } from '@mint-ui/core';
 import { useStateRef } from '@shared/hooks/util-hook';
-import { AppConfig, OrderDate, OrderListStore, OrderStocks, OrderTrading, PassedListStore, getOrderToday, removeOrderToday } from '@shared/states/global';
-import { ContentBox, PageContainer, Section } from '@shared/ui/design-system-v1';
+import { AppConfig, OrderDate, OrderListStore, OrderStocks, OrderTrading, PassedList, removeOrderToday } from '@shared/states/global';
+import { ContentBox, PageContainer, Section, useShowToastHook } from '@shared/ui/design-system-v1';
 import { DateUtil } from '@shared/utils/date';
-import { useEffect, useRef, useState } from 'react';
-import { useRecoilState, useRecoilValue } from 'recoil';
+import { useState } from 'react';
+import { useRecoilState, useRecoilValue, useSetRecoilState } from 'recoil';
 
-import { MessageBox } from '../../components/MessageBox';
+import { MainChart } from './components/MainChart';
+import { MainGrid } from './components/MainGrid';
+
 import { useIsOpenDay } from '../../hooks/is-open-day-hook';
-import { SellByPercent } from '../../trading-strategy/sell-by-percent';
-
-const AMOUNT_REG_EXP = /\B(?<!\.\d*)(?=(\d{3})+(?!\d))/g;
+import { useKisCatchStock } from '../../hooks/kis-catch-stock-hook';
 
 export function Main() {
+
   // 메시지
-  const [ message, setMessage ] = useState({ content: '' });
+  const setMessage = useShowToastHook();
+
+  // 개장일 여부
+  const { isOpen } = useIsOpenDay();
+  const isOpenRef = useStateRef(isOpen);
 
   // 앱 설정
   const appConfig = useRecoilValue(AppConfig);
 
-  // 개장 여부
-  const { isOpen, checkOpenDay } = useIsOpenDay();
-  const isOpenRef = useRef<string>();
-  useEffect(() => {
-    isOpenRef.current = isOpen;
-  }, [ isOpen ]);
+  // 처리 모드
+  const [ auto, setAuto ] = useState(false);
+
+  // KIS 자동매수 처리
+  const { data, setData, refresh } = useKisCatchStock(auto, () => {
+    handleAutoModeClick();
+    setMessage(isOpenRef.current !== 'Y' 
+      ? '개장일이 아닙니다' 
+      : `작업 가능시간이 아닙니다. (${appConfig.workingStart} ~ ${appConfig.workingEnd})`);
+  });
 
   // 주문 리스트
-  const [ orderDate, setOrderDate ] = useRecoilState(OrderDate);
-  const orderDateRef = useStateRef(orderDate);
-
-  const [ orderStocks, setOrderStocks ] = useRecoilState(OrderStocks);
-  const orderStocksRef = useStateRef(orderStocks);
-
+  const setOrderDate = useSetRecoilState(OrderDate);
+  
   const [ orderTrading, setOrderTrading ] = useRecoilState(OrderTrading);
   const orderTradingRef = useStateRef(orderTrading);
 
-  // 거래량 데이터
-  const [ data, setData, refresh ] = useKisApi(VolumeRank, {
-    request: {
-      params: {
-        FID_INPUT_PRICE_1: appConfig.minTargetAmt || 4000,
-        FID_INPUT_PRICE_2: appConfig.maxOrderAmt || 40000,
-        FID_VOL_CNT: appConfig.minTradingCount || 1000000,
-      },
-    },
-    callback(response) {
-      if (autoCount.current < 0) {
-        setMessage({ content: response?.msg1 || '' });
-      } else {
-        autoCount.current += 1;
-        setMessage({ content: `자동조회중...${autoCount.current}` });
+  const setOrderStocks = useSetRecoilState(OrderStocks);
 
-        const today = DateUtil.getToday();
-        const todayHHMi = DateUtil.getTodayHHMi();
-        
-        // 개장일이고 처리시간 내이면
-        if (isOpenRef.current === 'Y'
-        && appConfig.workingStart <= todayHHMi 
-        && appConfig.workingEnd >= todayHHMi
-        ) {
-
-          let orderDate = orderDateRef.current;
-          let orderStocks = orderStocksRef.current;
-          let orderTrading = orderTradingRef.current;
-
-          // 오늘 주문한 상태이면 현재 조회 대상들은 모두 pass 대상으로 처리
-          // (주문을 처리중인 상태에서 조회된 다른 종목들은 상품가치가 떨어짐. 새로 튀는것을 잡아야함)
-          if (getOrderToday()) {
-            const currList = (response?.output || []).map((item) => item.mksc_shrn_iscd);
-            PassedListStore.setAll(currList);
-            return;
-          }
-
-          // 오늘이 아니면 초기화
-          if (today !== orderDate) {
-            orderDate = today;
-            orderStocks = [];
-            orderTrading = [];
-            setOrderDate(orderDate);
-            setOrderStocks(orderStocks);
-            setOrderTrading(orderTrading);
-            removeOrderToday();
-            OrderListStore.removeAll();
-            // PassedListStore.removeAll();
-          }
-
-          // 조건에 맞는 대상 종목 중 가장 위에것만 취하기 (1건씩만)
-          const [ target ] = (response?.output || []).filter((item) => !OrderListStore.includes(item.mksc_shrn_iscd) // 오늘 주문 아니고
-          && !PassedListStore.includes(item.mksc_shrn_iscd) // Pass 대상도 아니고
-          && isTargetRow(item)); // 타겟 종목일때
-
-          if (target) {
-
-            // 주문 리스트 갱신
-            orderStocks = [ ...orderStocks ];
-            orderStocks.push(target.mksc_shrn_iscd);
-            setOrderStocks(orderStocks);
-
-            // 오늘의 주문 종목으로 기록
-            OrderListStore.set(target.mksc_shrn_iscd);
-
-            // pass list 에 set
-            PassedListStore.set(target.mksc_shrn_iscd);
-
-            // 오늘 주문 flag 처리
-            //  => 여러개의 주문을 처리하기 위해 더이상 주문을 막지 않는다.
-            // setOrderToday();
-
-            // 주문 API 처리 ( 시장가(01) 매수 )
-            // 주문 수량
-            const maxAmt = appConfig.maxOrderAmt;
-            const orderCount = (maxAmt / Number(target.stck_prpr)).toFixed(0);
-            if (Number(orderCount) <= 0) { // 신청 불가하면 pass
-              setMessage({ content: `최대 주문금액 (${maxAmt}) 을 초과합니다.` });
-              return;
-            }
-
-            OrderCache({
-              body: {
-                BUY: true, 
-                PDNO: target.mksc_shrn_iscd,
-                ORD_QTY: orderCount,
-                ORD_DVSN: '01',
-                ORD_UNPR: '0', 
-              }, 
-            }).then((res) => {
-
-              // 주문 불가인 경우
-              if (res.rt_cd !== '0') {
-
-                // 메시지 처리
-                const msg = `[${target.mksc_shrn_iscd} / ${target.hts_kor_isnm}] 주식주문불가??? => ${res.msg1}`;
-                console.log(msg);
-                setMessage({ content: msg });
-                
-              } else { // 주문 성공인 경우
-
-                // 메시지 처리
-                const msg = `[${target.mksc_shrn_iscd} / ${target.hts_kor_isnm}] 주식주문완료!!! => ${res.output.ODNO} ${orderCount}주`;
-                console.log(msg, res.output);
-                setMessage({ content: msg });
-
-                // 매매전략 실행
-                const callback = () => {
-                  // newOrder.trading.splice(newOrder.trading.indexOf(trad), 1); => 제거는 하지 말자
-                  setOrderTrading([ ...orderTradingRef.current ]);
-                };
-
-                const trad = new SellByPercent(target.mksc_shrn_iscd, appConfig.highPercentage, appConfig.lowPercentage, callback);
-                setOrderTrading([ ...orderTradingRef.current, trad ]);
-
-              }
-            });
-          }
-          
-          // 한번 조회된것은 모두 제외 (처음 리스트업 되는 매물만 잡기!!!)
-          PassedListStore.setAll((response?.output || []).map((item) => item.mksc_shrn_iscd));
-
-        } else {
-          handleAutoModeClick();
-          setMessage({
-            content: isOpenRef.current !== 'Y' 
-              ? '개장일이 아닙니다' 
-              : `작업 가능시간이 아닙니다. (${appConfig.workingStart} ~ ${appConfig.workingEnd})`, 
-          });
-        }
-      }
-    },
-  });
-
-  // 작업/조회
-  const autoCount = useRef(-1);
-  const [ auto, setAuto ] = useState(false);
-  const interval = useRef<number>();
-  useEffect(() => {
-    if (auto) {
-      checkOpenDay(); // 개장일 다시 체크
-      refresh();
-      interval.current = window.setInterval(refresh, appConfig.refreshRate);
-    }
-    return () => {
-      window.clearInterval(interval.current);
-      interval.current = undefined;
-    };
-  }, [ auto ]);
-
-  // 버튼 핸들러
+  // 버튼 핸들러: 작업 on/off
   const handleAutoModeClick = () => {
-    if (!auto) {
-      autoCount.current = 0;
-    } else {
-      autoCount.current = -1;
-    }
-    setMessage({ content: '' });
     setAuto(!auto);
   };
 
+  // 버튼 핸들러: 조회(새로고침)
   const handleRefreshClick = () => {
     setData([]);
     refresh();
   };
 
+  // 버튼 핸들러: 초기화
   const handleWorkReset = () => {
     
     if (orderTradingRef.current.filter((trad) => trad.state !== 'done').length > 0) {
-      setMessage({ content: '아직 처리중인 주문이 있습니다.' });
+      setMessage('아직 처리중인 주문이 있습니다.');
       return;
     }
 
@@ -220,57 +71,23 @@ export function Main() {
     
     OrderListStore.removeAll();
 
-    setMessage({ content: '주문내역이 초기화되었습니다.' });
+    setMessage('주문내역이 초기화되었습니다.');
 
   };
 
+  // 버튼 핸들러: 제외처리
+  const setPassedList = useSetRecoilState(PassedList);
   const handleExcludeClick = () => {
     const currList = (data || []).map((item) => item.mksc_shrn_iscd);
-    PassedListStore.setAll(currList);
+    setPassedList(currList);
+    setMessage(currList.length > 0 ? `${currList.length} 건 제외처리 되었습니다.` : '제외할 대상이 없습니다.');
   };
-
-  // 그리드 포맷
-  function amountFormat<T>(item:T, header:GridHeader<T>) {
-    return String(item[header.targetId]).replace(AMOUNT_REG_EXP, ',');
-  }
-  function percentFixedFormat<T>(item:T, header:GridHeader<T>) {
-    const val = Number(item[header.targetId]);
-    return `${(val > 9999 ? '9999' : val.toFixed(0)).replace(AMOUNT_REG_EXP, ',')} %`;
-  }
-  function percentFormat<T>(item:T, header:GridHeader<T>) {
-    return `${String(item[header.targetId])} %`;
-  }
-  function isTargetRow(item:ResponseVolumeRank) {
-    const per = Number(item.prdy_ctrt);
-    const inc = Number(item.vol_inrt);
-    return per > appConfig.targetUpRating && inc > appConfig.targetIncreaseRate;
-  }
-  function targetRowClassName(item:ResponseVolumeRank) {
-    
-    if (orderTradingRef.current.filter((trad) => trad.code === item.mksc_shrn_iscd 
-    && trad.state !== 'done' 
-    && trad.state !== 'error').length > 0) {
-      return 'mint-grid-processing-row';
-    }
-    if (orderStocksRef.current.includes(item.mksc_shrn_iscd)) {
-      return 'mint-grid-ordered-row';
-    }
-    return isTargetRow(item) ? 'mint-grid-target-row' : '';
-  }
-  function amountRedBlue(item:ResponseVolumeRank) {
-    const per = Number(item.prdy_ctrt);
-    if (per > 0) {
-      return 'red';
-    }
-    if (per < 0) {
-      return 'blue';
-    }
-    return undefined;
-  }
 
   return (
     <PageContainer title='거래량 조회'>
+
       <ContentBox>
+
         <Section rowDirection flexAlign='center' flexSize='50px' justifyContent='space-between'>
           <Flex rowDirection flexAlign='center' flexGap='10px'>
             <Flex flexAlign='left-center'>{isOpen === undefined ? '' : `개장일:${isOpen}`}</Flex>
@@ -282,57 +99,19 @@ export function Main() {
             <Button onClick={handleExcludeClick}>제외처리</Button>
           </Flex>
         </Section>
-        <Section rowDirection flexAlign='center' flexSize='50px' justifyContent='space-between'>
-          <MessageBox message={message} clear={!auto} />
-        </Section>
+
         <Section flexAlign='center' flexPadding='10px 0px'>
           <Flex>
-            <Grid
-              headers={[
-                { label: '순위', targetId: 'data_rank', width: 40, textAlign: 'center' },
-                { label: '종목', targetId: 'hts_kor_isnm', minWidth: 60, fontWeight: 700 },
-                { label: '현재가', targetId: 'stck_prpr', minWidth: 50, textAlign: 'right', textFormat: amountFormat },
-                { label: '등락율', targetId: 'prdy_ctrt', minWidth: 55, textAlign: 'right', textFormat: percentFormat, color: amountRedBlue },
-                { label: '거래량', targetId: 'acml_vol', minWidth: 65, textAlign: 'right', textFormat: amountFormat },
-                { label: '증가율', targetId: 'vol_inrt', minWidth: 55, textAlign: 'right', textFormat: percentFixedFormat },
-              ]}
-              data={data || []}
-              gridStyle={{ emptyText: 'No data', rowClassName: targetRowClassName }}
-              rowHeightExtensible
-            />
+            <MainGrid data={data || []} />
           </Flex>
         </Section>
+
         <Section flexSize='180px'>
-          {data && data.length > 0 ? (
-            <LineChart
-              data={data.filter((item) => Number(item.prdy_ctrt) > 0).map(
-                (item, idx) => ({
-                  ...item,
-                  data_rank: idx + 1,
-                }),
-              ).slice(0, 15)}
-              series={[{
-                type: 'PointAndFill', 
-                keyY: 'prdy_ctrt',
-                lineStyle: { fill: 'lightgreen', fillOpacity: 0.6, stroke: 'lightgreen', strokeWidth: 2 }, 
-                pointStyle: { pointSize: 2 },
-              }]}
-              seriesConfig={{
-                keyX: 'data_rank',
-                valueUnit: 6, 
-                labelY: { renderer: (val) => `${val}%` },
-                minValue: 0,
-                maxValue: 30,
-              }}
-              paddingTop={30}
-              paddingBottom={30}
-              paddingLeft={35}
-              paddingRight={10}
-            />
-          )
-            : <Flex flexAlign='center'><Text text='No Data' /></Flex>}
+          <MainChart data={data} />
         </Section>
+
       </ContentBox>
+
     </PageContainer>
   );
 }
