@@ -38,8 +38,6 @@ export const PassedList = atom<string[]>({
   effects: [
     ({ onSet }) => {
       onSet((newValue, _, isReset) => {
-        console.log(`isReset:${isReset}`, newValue);
-        
         !isReset && PassedListStore.setAll(newValue);
       });
     },

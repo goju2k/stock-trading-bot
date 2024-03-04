@@ -2,7 +2,7 @@ import { Button, Flex, LineChart, Text } from '@mint-ui/core';
 import { CheckBalance, CheckBalanceListener, OrderCache } from '@shared/apis/kis';
 import { useStateRef } from '@shared/hooks/util-hook';
 import { OrderTrading } from '@shared/states/global';
-import { ContentBox, FlexLeft, FlexRight, PageContainer } from '@shared/ui/design-system-v1';
+import { ContentBox, FlexLeft, FlexRight, PageContainer, useShowToastHook } from '@shared/ui/design-system-v1';
 import { DateUtil } from '@shared/utils/date';
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { useRecoilValue } from 'recoil';
@@ -37,6 +37,9 @@ const getXCountPerWidth = () => Math.floor(getContainerSize() / 50);
 
 export function LogCenter() {
   
+  // toast message
+  const setMessage = useShowToastHook();
+
   // summary
   const [ summary, setSummary ] = useState<LogSummary>({ resultAmt: '0 원', resultRate: '0 %' });
 
@@ -168,10 +171,10 @@ export function LogCenter() {
                     <FlexLeft flexSize='fit-content' flexPadding='0px 10px'>
                       {trad.hasBalance && (
                         <FlexRight>
-                          <Button onClick={() => {
+                          <Button onClick={async () => {
 
                             // 매도주문 - 시장가
-                            OrderCache({
+                            await OrderCache({
                               body: {
                                 BUY: false, 
                                 PDNO: trad.code,
@@ -180,6 +183,8 @@ export function LogCenter() {
                                 ORD_UNPR: '0', 
                               },
                             });
+
+                            setMessage(`[${trad.code}] 강제매도 처리완료`);
     
                           }}
                           >강제매도
