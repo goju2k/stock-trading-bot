@@ -26,7 +26,7 @@ export class ListBasedLocalStore<T> {
     window.localStorage.setItem(this.key, JSON.stringify(list));
   }
 
-  setAll(stocks:T[]) {
+  addAll(stocks:T[]) {
     const list = this.get();
     stocks.forEach((stock) => {
       if (!list.includes(stock)) {
@@ -34,6 +34,10 @@ export class ListBasedLocalStore<T> {
       }
     });
     window.localStorage.setItem(this.key, JSON.stringify(list));
+  }
+
+  setAll(stocks:T[]) {
+    window.localStorage.setItem(this.key, JSON.stringify(stocks));
   }
 
   removeAll() {

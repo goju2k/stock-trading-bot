@@ -1,5 +1,6 @@
 import { DateUtil } from '@shared/utils/date';
 import { ListBasedLocalStore } from '@shared/utils/localstorage';
+import { atom, useRecoilState } from 'recoil';
 
 // today's order
 export function getOrderToday() {
@@ -26,3 +27,34 @@ export const OrderListStore = new ListBasedLocalStore<string>('order-list');
  * 오늘 주문대상에서 제외된 목록
  */
 export const PassedListStore = new ListBasedLocalStore<string>('passed-list');
+let defaultPassedValues = PassedListStore.get();
+if (!defaultPassedValues) {
+  defaultPassedValues = [];
+}
+
+export const PassedList = atom<string[]>({
+  key: 'passed-list',
+  default: defaultPassedValues,
+  effects: [
+    ({ onSet }) => {
+      onSet((newValue, _, isReset) => {
+        console.log(`isReset:${isReset}`, newValue);
+        
+        !isReset && PassedListStore.setAll(newValue);
+      });
+    },
+  ],
+});
+
+export function useAddPassedList() {
+  const [ state, setState ] = useRecoilState(PassedList);
+  return (stocks:string|string[]) => {
+    stocks = Array.isArray(stocks) ? stocks : [ stocks ];
+    stocks.forEach((stock) => {
+      if (!state.includes(stock)) {
+        state.push(stock);
+      }
+    });
+    setState([ ...state ]);
+  };
+}
