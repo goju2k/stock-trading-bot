@@ -51,12 +51,12 @@ export function MainToast() {
   const toastContext = useContext(MainToastContext);
   useEffect(() => {
     if (toastContext.message) {
-      const deltaX = toastContext.message.length * 5;
+      const deltaX = (measureText(toastContext.message) + 42) / 2;
       const rect = document.body.getBoundingClientRect();
       const offsetLeft = Math.max(rect.width / 2 - deltaX, rect.width * 0.1);
       toastRef.current?.showMessage(toastContext.message, document.body, offsetLeft, rect.height * 0.8);
     }
-  }, [ toastContext.message ]);
+  }, [ toastContext ]);
 
   return (
     <Toast
@@ -69,4 +69,23 @@ export function MainToast() {
       )}
     />
   );
+}
+
+const canvas = document.createElement('canvas');
+const ctx = canvas.getContext('2d');
+
+function measureText(text:string) {
+  
+  if (!ctx) {
+    return 0;
+  }
+
+  ctx.font = '14px Pretendard';
+  return ctx.measureText(text).width;
+}
+
+// Toast Hook
+export function useShowToastHook() {
+  const toast = useContext(MainToastContext);
+  return toast.show;
 }

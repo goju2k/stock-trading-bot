@@ -3,20 +3,24 @@ import { OrderCache, ResponseVolumeRank, VolumeRank } from '@shared/apis/kis';
 import { useKisApi } from '@shared/hooks/api-hook';
 import { useStateRef } from '@shared/hooks/util-hook';
 import { AppConfig, OrderDate, OrderListStore, OrderStocks, OrderTrading, PassedListStore, getOrderToday, removeOrderToday } from '@shared/states/global';
-import { ContentBox, PageContainer, Section } from '@shared/ui/design-system-v1';
+import { ContentBox, PageContainer, Section, useShowToastHook } from '@shared/ui/design-system-v1';
 import { DateUtil } from '@shared/utils/date';
 import { useEffect, useRef, useState } from 'react';
 import { useRecoilState, useRecoilValue } from 'recoil';
 
-import { MessageBox } from '../../components/MessageBox';
 import { useIsOpenDay } from '../../hooks/is-open-day-hook';
 import { SellByPercent } from '../../trading-strategy/sell-by-percent';
 
 const AMOUNT_REG_EXP = /\B(?<!\.\d*)(?=(\d{3})+(?!\d))/g;
 
 export function Main() {
+
   // 메시지
-  const [ message, setMessage ] = useState({ content: '' });
+  const setMessage = ({ content }: { content:string; }) => {
+    showMessage(content);
+  };
+
+  const showMessage = useShowToastHook();
 
   // 앱 설정
   const appConfig = useRecoilValue(AppConfig);
@@ -281,9 +285,6 @@ export function Main() {
             <Button disabled={auto} onClick={handleRefreshClick}>조회</Button>
             <Button onClick={handleExcludeClick}>제외처리</Button>
           </Flex>
-        </Section>
-        <Section rowDirection flexAlign='center' flexSize='50px' justifyContent='space-between'>
-          <MessageBox message={message} clear={!auto} />
         </Section>
         <Section flexAlign='center' flexPadding='10px 0px'>
           <Flex>
