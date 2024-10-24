@@ -11,7 +11,7 @@ app.use(express.json());
 app.use(cors());
 
 app.get('/health', (req, res) => {
-  res.send('ok');
+  res.send('ok changed!!');
 });
 
 const target = 'openapi.koreainvestment.com:9443';
