@@ -4,6 +4,23 @@
 # Tip: Modify "docker-build" options in project.json to change docker build args.
 #
 # Run the container with `docker run -p 3000:3000 -t kis-server`.
+
+# == stage 1 =======================================================
+FROM docker.io/node:lts-alpine AS build
+
+# workdir
+WORKDIR /app
+
+# copy
+COPY package*.json ./
+COPY node_modules ./node_modules
+COPY dist/apps/kis-server ./
+
+# remove dev dep
+RUN npm prune --production
+
+
+# == stage 2 =======================================================
 FROM docker.io/node:lts-alpine
 
 ENV HOST=0.0.0.0
@@ -11,14 +28,9 @@ ENV PORT=3000
 
 WORKDIR /app
 
-RUN addgroup --system kis-server && \
-          adduser --system -G kis-server kis-server
+# copy
+COPY --from=build app/ ./
 
-COPY dist/apps/kis-server kis-server
-RUN chown -R kis-server:kis-server .
+# RUN chown -R kis-server:kis-server .
 
-# You can remove this install step if you build with `--bundle` option.
-# The bundled output will include external dependencies.
-RUN npm --prefix kis-server --omit=dev -f install
-
-CMD [ "node", "kis-server" ]
+CMD [ "node", "main.js" ]
