@@ -8,7 +8,7 @@
     "postbuild": "node after.mjs",
     "server": "nx serve kis-server",
     "build-server": "nx build kis-server",
-    "image-server": "docker build -f apps/kis-server/Dockerfile -t auto-stock-trading-app .",
+    "image-server": "docker build -f ./apps/kis-server/Dockerfile -t auto-stock-trading-app .",
     "fix": "eslint --fix"
   },
   "private": true,
