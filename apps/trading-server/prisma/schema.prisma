@@ -59,6 +59,9 @@ model TradingSession {
   openedAt      DateTime?
   liquidationAt DateTime?
   closedAt      DateTime?
+  // 당일 조회에서 이미 훑고 지나간 종목코드 (기존 PassedList/PassedListStore 대응).
+  // 최초 등장한 매물만 잡기 위해 스캔 틱마다 조회된 코드를 전부 여기 누적한다.
+  passedCodes   String[]  @default([])
 
   orders Order[]
   events TradeEvent[]
@@ -86,15 +89,18 @@ model Order {
 
 // 매수 1건당 상태머신 1행 = 기존 TradingStrategy/SellByPercent 인스턴스에 대응.
 model PositionWatcher {
-  id           Int           @id @default(autoincrement())
-  orderId      Int           @unique
-  code         String
-  state        PositionState @default(checking)
-  sellAmtHigh  Decimal?      @db.Decimal(12, 2)
-  sellAmtLow   Decimal?      @db.Decimal(12, 2)
-  highOrLow    String?
-  stateMessage String?
-  updatedAt    DateTime      @updatedAt
+  id             Int           @id @default(autoincrement())
+  orderId        Int           @unique
+  code           String
+  state          PositionState @default(checking)
+  // 매수 시점 설정값 스냅샷 (재시작 복구 시 도중에 설정이 바뀌어도 원래 기준으로 동작하도록 고정)
+  highPercentage Float
+  lowPercentage  Float
+  sellAmtHigh    Decimal?      @db.Decimal(12, 2)
+  sellAmtLow     Decimal?      @db.Decimal(12, 2)
+  highOrLow      String?
+  stateMessage   String?
+  updatedAt      DateTime      @updatedAt
 
   order Order @relation(fields: [orderId], references: [id])
 

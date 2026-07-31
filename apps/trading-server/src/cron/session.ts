@@ -1,6 +1,8 @@
+import { getTradingConfig } from '../config/trading-config';
 import { fetchBusinessDay } from '../kis';
 import { getKisEnvConfig } from '../kis/env';
 import { getPrisma } from '../lib/prisma';
+import { TradingRuntime, isScannerRunning, resumeOpenWatchers, startScanner, stopScanner } from '../trading';
 
 function todayDateOnly() {
   const now = new Date();
@@ -14,7 +16,7 @@ function todayYYYYMMDD() {
   return `${now.getFullYear()}${mm}${dd}`;
 }
 
-// 09:00 평일 트리거. 개장일이면 세션을 열고, TODO(Phase 2): TradingScanner + BalancePoller 시작.
+// 09:00 평일 트리거. 개장일이고 자동매매가 켜져 있으면 세션을 열고 TradingScanner를 시작한다.
 export async function openTodaySession() {
   const sessionDate = todayDateOnly();
   const businessDay = await fetchBusinessDay(todayYYYYMMDD());
@@ -45,12 +47,20 @@ export async function openTodaySession() {
     },
   });
 
+  if (isBusinessDay) {
+    const config = await getTradingConfig();
+    if (config.autoTradingEnabled) {
+      startScanner(session.id);
+    } else {
+      console.log('[cron] autoTradingEnabled=false - scanner not started');
+    }
+  }
+
   console.log(`[cron] session opened for ${sessionDate.toISOString().slice(0, 10)} (businessDay=${isBusinessDay}, env=${env})`);
   return session;
 }
 
-// 15:25 평일 트리거 (정규장 마감 15:30 직전). 신규 스캔 중단 + 잔여 포지션 강제청산.
-// TODO(Phase 2): position_watchers 중 state != done/error 인 항목을 조회해서 전량 시장가 매도 주문.
+// 15:25 평일 트리거 (정규장 마감 15:30 직전). 신규 스캔 중단 + 잔여 포지션 전량 강제청산.
 export async function liquidateTodaySession() {
   const sessionDate = todayDateOnly();
   const prisma = getPrisma();
@@ -61,6 +71,8 @@ export async function liquidateTodaySession() {
     return;
   }
 
+  stopScanner();
+
   await prisma.tradingSession.update({
     where: { id: session.id },
     data: { liquidationAt: new Date() },
@@ -70,15 +82,23 @@ export async function liquidateTodaySession() {
     data: {
       sessionId: session.id,
       type: 'forced_liquidation',
-      message: '15:25 장마감 강제청산 트리거 (Phase 2에서 실제 매도 주문 연결 예정)',
+      message: '15:25 장마감 강제청산 트리거',
     },
   });
 
-  console.log('[cron] liquidation triggered - TODO: sell remaining open positions (Phase 2)');
+  const activeWatchers = TradingRuntime.active();
+  console.log(`[cron] liquidating ${activeWatchers.length} open position(s)`);
+
+  await Promise.all(activeWatchers.map(async (watcher) => {
+    try {
+      await watcher.forceSell('15:25 장마감 강제청산');
+    } catch (error) {
+      console.error(`[cron] forceSell failed for ${watcher.code}`, error);
+    }
+  }));
 }
 
-// 16:00 평일 트리거. 세션 공식 종료 기록.
-// TODO(Phase 2): 스캐너 루프 정지. 아직 청산 확인 안 된 watcher가 있으면 BalancePoller는 계속 둠.
+// 16:00 평일 트리거. 세션 공식 종료 기록. (BalancePoller/미종료 watcher는 계속 둔다 - Phase 2 설계 그대로)
 export async function closeTodaySession() {
   const sessionDate = todayDateOnly();
   const prisma = getPrisma();
@@ -88,6 +108,8 @@ export async function closeTodaySession() {
     console.log('[cron] close skipped - no session record today');
     return;
   }
+
+  stopScanner();
 
   await prisma.tradingSession.update({
     where: { id: session.id },
@@ -103,4 +125,25 @@ export async function closeTodaySession() {
   });
 
   console.log('[cron] session closed');
+}
+
+// 서버 부팅 시 1회 호출. 오늘 세션이 열려있는데(closedAt 없음) 프로세스가 재시작된 경우
+// (배포/크래시) 미종료 watcher와 스캐너 루프를 복구한다. 평범한 재기동(장 시작 전/마감 후)에는
+// 오늘자 열린 세션이 없으니 아무 일도 하지 않는다.
+export async function resumeTodaySessionIfNeeded() {
+  const sessionDate = todayDateOnly();
+  const prisma = getPrisma();
+  const session = await prisma.tradingSession.findUnique({ where: { sessionDate } });
+
+  if (!session || !session.openedAt || session.closedAt) {
+    return;
+  }
+
+  await resumeOpenWatchers(session.id);
+
+  const config = await getTradingConfig();
+  if (config.autoTradingEnabled && !isScannerRunning() && !session.liquidationAt) {
+    startScanner(session.id);
+    console.log(`[cron] scanner resumed for session ${session.id} after restart`);
+  }
 }

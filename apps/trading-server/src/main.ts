@@ -8,7 +8,11 @@ dotenv.config({ path: '.env.local' });
 // eslint-disable-next-line import/first
 import { startTradingCron } from './cron/schedule';
 // eslint-disable-next-line import/first
+import { resumeTodaySessionIfNeeded } from './cron/session';
+// eslint-disable-next-line import/first
 import { getPrisma } from './lib/prisma';
+// eslint-disable-next-line import/first
+import { BalancePoller } from './trading';
 
 const host = process.env.HOST ?? 'localhost';
 const port = process.env.PORT ? Number(process.env.PORT) : 3001;
@@ -25,7 +29,12 @@ app.get('/health', async (_req, res) => {
   }
 });
 
-app.listen(port, host, () => {
+app.listen(port, host, async () => {
   console.log(`[ ready ] trading-server http://${host}:${port}`);
+
+  // 잔고 폴러는 프로세스 수명 전체에 걸쳐 1개만 존재 (리스너 없으면 자체적으로 idle).
+  BalancePoller.run();
+
+  await resumeTodaySessionIfNeeded();
   startTradingCron();
 });
