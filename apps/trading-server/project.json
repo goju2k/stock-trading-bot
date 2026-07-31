@@ -1,0 +1,67 @@
+{
+  "name": "trading-server",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/trading-server/src",
+  "projectType": "application",
+  "targets": {
+    "build": {
+      "executor": "@nx/webpack:webpack",
+      "outputs": ["{options.outputPath}"],
+      "defaultConfiguration": "production",
+      "options": {
+        "target": "node",
+        "compiler": "tsc",
+        "outputPath": "dist/apps/trading-server",
+        "main": "apps/trading-server/src/main.ts",
+        "tsConfig": "apps/trading-server/tsconfig.app.json",
+        "assets": [
+          "apps/trading-server/src/assets",
+          { "glob": "**/*", "input": "apps/trading-server/prisma", "output": "prisma" }
+        ],
+        "isolatedConfig": true,
+        "webpackConfig": "apps/trading-server/webpack.config.js"
+      },
+      "configurations": {
+        "development": {},
+        "production": {
+          "generatePackageJson": true,
+          "generateLockfile": true
+        }
+      }
+    },
+    "serve": {
+      "executor": "@nx/js:node",
+      "defaultConfiguration": "development",
+      "options": {
+        "buildTarget": "trading-server:build"
+      },
+      "configurations": {
+        "development": {
+          "buildTarget": "trading-server:build:development"
+        },
+        "production": {
+          "buildTarget": "trading-server:build:production"
+        }
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "outputs": ["{options.outputFile}"],
+      "options": {
+        "lintFilePatterns": ["apps/trading-server/**/*.ts"]
+      }
+    },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "options": {
+        "jestConfig": "apps/trading-server/jest.config.ts"
+      }
+    },
+    "docker-build": {
+      "dependsOn": ["build"],
+      "command": "docker build -f apps/trading-server/Dockerfile . -t trading-server"
+    }
+  },
+  "tags": ["scope:trading-server"]
+}
