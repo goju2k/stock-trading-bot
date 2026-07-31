@@ -95,10 +95,7 @@ nx affected -t test                # run tests for everything touched vs default
 Notes:
 - `services/trading` and the app use **Vitest** (`@nx/vite:test`); every `shared/*` library uses **Jest** (`@nx/jest:jest`) — check `project.json`'s `test` target before assuming which runner applies. `trading-server` has no tests yet.
 - Nx caches `build`/`lint`/test targets; if output looks stale, add `--skip-nx-cache`.
-- `.env.local` (git-ignored, shared by both the Vite FE and `trading-server`'s `dotenv.config()`) supplies:
-  - FE: `VITE_KIS_HOST`, `VITE_KIS_APP_KEY`, `VITE_KIS_APP_SECRET`, `VITE_KIS_CANO`, `VITE_KIS_TOKEN`.
-  - `trading-server`: `DATABASE_URL` (Postgres), `KIS_ENV` (`paper`|`real`), `KIS_REAL_HOST`/`KIS_REAL_APP_KEY`/`KIS_REAL_APP_SECRET`/`KIS_REAL_CANO`, `KIS_PAPER_HOST`/`KIS_PAPER_APP_KEY`/`KIS_PAPER_APP_SECRET`/`KIS_PAPER_CANO`, `API_TOKEN` (REST API auth), `HOST`/`PORT`.
-  - Never commit real values or print them. Paper-trading appkey/secret are issued separately from real ones on the KIS developer portal.
+- `.env.local` (git-ignored, shared by both the Vite FE and `trading-server`'s `dotenv.config()`) holds all secrets/config; **`.env.example` at the repo root is the checked-in, secret-free spec** — every var name, what it's for, its expected format, and where to obtain it (KIS appkey/secret/CANO come from the KIS developer portal — real and paper are separate applications with separate keys). New machine setup: `cp .env.example .env.local` then fill in real values. Never commit real values or print them.
 
 ## Conventions
 
