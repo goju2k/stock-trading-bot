@@ -17,6 +17,7 @@ export interface ResumeRow {
   lowPercentage: number;
   sellAmtHigh: unknown;
   sellAmtLow: unknown;
+  peakPrice: unknown;
   highOrLow: string | null;
 }
 
@@ -41,6 +42,9 @@ export class PositionWatcher {
   sellAmtHigh = 0;
 
   sellAmtLow = 0;
+
+  // 트레일링 스탑 고점 (watching_for_sell 진입 이후 관측된 최고가)
+  peakPrice = 0;
 
   highOrLow: 'high' | 'low' | '' = '';
 
@@ -73,6 +77,7 @@ export class PositionWatcher {
     const watcher = new PositionWatcher(row.id, row.orderId, row.code, row.highPercentage, row.lowPercentage, onDone);
     watcher.sellAmtHigh = row.sellAmtHigh ? Number(row.sellAmtHigh) : 0;
     watcher.sellAmtLow = row.sellAmtLow ? Number(row.sellAmtLow) : 0;
+    watcher.peakPrice = row.peakPrice ? Number(row.peakPrice) : 0;
     watcher.highOrLow = (row.highOrLow as 'high' | 'low' | '') || '';
 
     if (row.state === 'sell_waiting') {
@@ -116,7 +121,7 @@ export class PositionWatcher {
     return `종목:[${this.code}] 처리상태:[${this.state}] ${this.stateMessage} ${target}`;
   }
 
-  private persist(fields: Partial<{ state: PositionState; sellAmtHigh: number; sellAmtLow: number; highOrLow: string; stateMessage: string; }>) {
+  private persist(fields: Partial<{ state: PositionState; sellAmtHigh: number; sellAmtLow: number; peakPrice: number; highOrLow: string; stateMessage: string; }>) {
     return getPrisma().positionWatcher.update({ where: { id: this.id }, data: fields }).catch((error) => {
       console.error(`[position-watcher:${this.code}] persist failed`, error);
     });
@@ -138,21 +143,22 @@ export class PositionWatcher {
     BalancePoller.addListener(listener);
   }
 
+  // 트레일링 스탑: high(익절)는 매수가 기준 고정, low(손절)는 진입 이후 관측된 고점(peakPrice)
+  // 기준으로 매 틱마다 다시 계산해서 신고점을 찍을수록 손절선도 같이 끌어올린다(내려가지는 않음).
   private watchForSell(holding?: InquireBalanceItem) {
     this.state = 'watching_for_sell';
     this.stateMessage = '매도 체크중';
     this.persist({ state: 'watching_for_sell', stateMessage: this.stateMessage });
 
-    let { sellAmtHigh: highAmt, sellAmtLow: lowAmt } = this;
+    const highAmt = holding ? Number((Number(holding.pchs_avg_pric) + (Number(holding.pchs_avg_pric) * this.highPercentage) / 100).toFixed(0)) : this.sellAmtHigh;
 
     if (holding) {
       const myAmt = Number(holding.pchs_avg_pric);
-      highAmt = Number((myAmt + (myAmt * this.highPercentage) / 100).toFixed(0));
-      lowAmt = Number((myAmt - (myAmt * this.lowPercentage) / 100).toFixed(0));
       this.sellAmtHigh = highAmt;
-      this.sellAmtLow = lowAmt;
-      this.stateMessage = `매도 타겟 : high:${highAmt} / low:${lowAmt}`;
-      this.persist({ sellAmtHigh: highAmt, sellAmtLow: lowAmt, stateMessage: this.stateMessage });
+      this.peakPrice = Math.max(myAmt, Number(holding.prpr));
+      this.sellAmtLow = Number((this.peakPrice - (this.peakPrice * this.lowPercentage) / 100).toFixed(0));
+      this.stateMessage = `매도 타겟 : high:${highAmt} / low:${this.sellAmtLow} (trailing)`;
+      this.persist({ sellAmtHigh: highAmt, sellAmtLow: this.sellAmtLow, peakPrice: this.peakPrice, stateMessage: this.stateMessage });
     }
 
     const listener: BalanceListener = async (holdings) => {
@@ -163,11 +169,18 @@ export class PositionWatcher {
       }
 
       const current = getHolding(holdings, this.code);
-      if (!current || !highAmt || !lowAmt) return;
+      if (!current || !highAmt || !this.sellAmtLow) return;
 
       const price = Number(current.prpr);
+
+      if (price > this.peakPrice) {
+        this.peakPrice = price;
+        this.sellAmtLow = Number((this.peakPrice - (this.peakPrice * this.lowPercentage) / 100).toFixed(0));
+        this.persist({ peakPrice: this.peakPrice, sellAmtLow: this.sellAmtLow });
+      }
+
       const checkHigh = price >= highAmt;
-      const checkLow = price <= lowAmt;
+      const checkLow = price <= this.sellAmtLow;
       if (!checkHigh && !checkLow) return;
 
       this.highOrLow = checkHigh ? 'high' : 'low';

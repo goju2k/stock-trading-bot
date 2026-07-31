@@ -11,6 +11,8 @@ const NUMBER_FIELDS = [
   'minTargetAmt', 'minTradingCount', 'targetUpRating', 'targetIncreaseRate',
 ] as const;
 
+const BOOLEAN_FIELDS = [ 'autoTradingEnabled', 'requireForeignInstitutionNetBuy', 'viStrategyEnabled' ] as const;
+
 // 기존 AdvanceOrder.tsx 설정 화면이 편집하던 필드 그대로. 실거래 금액/비율이라 최소한의
 // 타입/범위 검증만 한다 (zod 등 별도 라이브러리 없이 이 레포 관례대로 손으로 체크).
 function sanitizeConfigInput(body: Record<string, unknown>) {
@@ -25,12 +27,13 @@ function sanitizeConfigInput(body: Record<string, unknown>) {
     data[field] = value;
   });
 
-  if (body.autoTradingEnabled !== undefined) {
-    if (typeof body.autoTradingEnabled !== 'boolean') {
-      throw new Error('autoTradingEnabled must be boolean');
+  BOOLEAN_FIELDS.forEach((field) => {
+    if (body[field] === undefined) return;
+    if (typeof body[field] !== 'boolean') {
+      throw new Error(`${field} must be boolean`);
     }
-    data.autoTradingEnabled = body.autoTradingEnabled;
-  }
+    data[field] = body[field] as boolean;
+  });
 
   return data;
 }

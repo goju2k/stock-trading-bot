@@ -49,3 +49,28 @@ export interface OrderCacheResponseOutput {
   ODNO: string;
   ORD_TMD: string;
 }
+
+// [국내주식] 변동성완화장치(VI) 현황 [v1_국내주식-055]
+export interface ViStatusItem {
+  hts_kor_isnm: string; // 종목명
+  mksc_shrn_iscd: string; // 종목코드
+  vi_cls_code: string; // VI발동상태
+  bsop_date: string; // 영업일자
+  cntg_vi_hour: string; // VI발동시간 (HHMMSS)
+  vi_cncl_hour: string; // VI해제시간 (HHMMSS, 발동중이면 공란)
+  vi_kind_code: string; // VI종류코드
+  vi_prc: string; // VI발동가격
+  vi_stnd_prc: string; // 정적VI발동기준가격
+  vi_dprt: string; // 정적VI발동괴리율
+  vi_count: string; // VI발동횟수
+}
+
+// [국내주식] 국내기관_외국인 매매종목가집계 [국내주식-037]
+export interface ForeignInstitutionItem {
+  hts_kor_isnm: string; // 종목명
+  mksc_shrn_iscd: string; // 종목코드
+  ntby_qty: string; // 순매수 수량 (합계)
+  stck_prpr: string; // 현재가
+  frgn_ntby_qty: string; // 외국인 순매수 수량
+  orgn_ntby_qty: string; // 기관계 순매수 수량
+}

@@ -3,9 +3,31 @@ import { fetchBusinessDay } from '../kis';
 import { getKisEnvConfig } from '../kis/env';
 import { todayDateOnly, todayYYYYMMDD } from '../lib/date';
 import { getPrisma } from '../lib/prisma';
-import { TradingRuntime, isScannerRunning, resumeOpenWatchers, startScanner, stopScanner } from '../trading';
+import {
+  TradingRuntime,
+  isScannerRunning,
+  resumeOpenWatchers,
+  startForeignInstitutionCache,
+  startScanner,
+  startViScanner,
+  stopForeignInstitutionCache,
+  stopScanner,
+  stopViScanner,
+} from '../trading';
 
-// 09:00 평일 트리거. 개장일이고 자동매매가 켜져 있으면 세션을 열고 TradingScanner를 시작한다.
+function startAllScanners(sessionId: number) {
+  startForeignInstitutionCache();
+  startScanner(sessionId);
+  startViScanner(sessionId);
+}
+
+function stopAllScanners() {
+  stopScanner();
+  stopViScanner();
+  stopForeignInstitutionCache();
+}
+
+// 09:00 평일 트리거. 개장일이고 자동매매가 켜져 있으면 세션을 열고 스캐너들을 시작한다.
 export async function openTodaySession() {
   const sessionDate = todayDateOnly();
   const businessDay = await fetchBusinessDay(todayYYYYMMDD());
@@ -39,9 +61,9 @@ export async function openTodaySession() {
   if (isBusinessDay) {
     const config = await getTradingConfig();
     if (config.autoTradingEnabled) {
-      startScanner(session.id);
+      startAllScanners(session.id);
     } else {
-      console.log('[cron] autoTradingEnabled=false - scanner not started');
+      console.log('[cron] autoTradingEnabled=false - scanners not started');
     }
   }
 
@@ -60,7 +82,7 @@ export async function liquidateTodaySession() {
     return;
   }
 
-  stopScanner();
+  stopAllScanners();
 
   await prisma.tradingSession.update({
     where: { id: session.id },
@@ -98,7 +120,7 @@ export async function closeTodaySession() {
     return;
   }
 
-  stopScanner();
+  stopAllScanners();
 
   await prisma.tradingSession.update({
     where: { id: session.id },
@@ -132,7 +154,7 @@ export async function resumeTodaySessionIfNeeded() {
 
   const config = await getTradingConfig();
   if (config.autoTradingEnabled && !isScannerRunning() && !session.liquidationAt) {
-    startScanner(session.id);
-    console.log(`[cron] scanner resumed for session ${session.id} after restart`);
+    startAllScanners(session.id);
+    console.log(`[cron] scanners resumed for session ${session.id} after restart`);
   }
 }

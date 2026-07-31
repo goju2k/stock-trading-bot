@@ -4,6 +4,8 @@ import { KisEnvName } from './env';
 export const COMMON_TR_ID = {
   volumeRank: 'FHPST01710000',
   businessDay: 'CTCA0903R',
+  viStatus: 'FHPST01390000', // 변동성완화장치(VI) 현황
+  foreignInstitutionTotal: 'FHPTJ04400000', // 국내기관_외국인 매매종목가집계
 };
 
 // 계좌/주문 tr_id는 모의투자가 'V', 실전투자가 'T' 접두사를 쓴다.

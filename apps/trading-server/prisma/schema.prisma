@@ -45,6 +45,10 @@ model TradingConfig {
   targetIncreaseRate Float    @default(100)
   kisEnv             KisEnv   @default(paper)
   autoTradingEnabled Boolean  @default(true)
+  // 거래대금순위 후보를 외국인/기관 합산 순매수 상위 종목으로 한 번 더 거른다 (foreign-institution-cache.ts).
+  requireForeignInstitutionNetBuy Boolean @default(true)
+  // VI 해제 모멘텀 전략(vi-scanner.ts) on/off. 메인 전략과 별개로 끌 수 있는 스위치.
+  viStrategyEnabled  Boolean  @default(true)
   updatedAt          DateTime @updatedAt
 
   @@map("trading_config")
@@ -62,6 +66,9 @@ model TradingSession {
   // 당일 조회에서 이미 훑고 지나간 종목코드 (기존 PassedList/PassedListStore 대응).
   // 최초 등장한 매물만 잡기 위해 스캔 틱마다 조회된 코드를 전부 여기 누적한다.
   passedCodes   String[]  @default([])
+  // VI 스캐너가 이미 처리(매수 시도 또는 스킵)한 종목코드 - passedCodes와 같은 역할이지만
+  // VI 이벤트 단위로 별도 추적 (같은 종목이 volume-rank/VI 양쪽에 다 걸릴 수 있어서 풀을 분리했다).
+  viActedCodes  String[]  @default([])
 
   orders Order[]
   events TradeEvent[]
@@ -78,6 +85,9 @@ model Order {
   buyPrice  Decimal  @db.Decimal(12, 2)
   qty       Int
   kisOrderNo String?
+  // 어떤 진입 전략이 이 매수를 했는지 ('volume_rank' | 'vi_release'). 자유 문자열로 둬서
+  // 새 전략 추가할 때 enum 마이그레이션 없이 바로 확장 가능하게 함.
+  sourceStrategy String @default("volume_rank")
   orderedAt DateTime @default(now())
 
   session         TradingSession   @relation(fields: [sessionId], references: [id])
@@ -98,6 +108,9 @@ model PositionWatcher {
   lowPercentage  Float
   sellAmtHigh    Decimal?      @db.Decimal(12, 2)
   sellAmtLow     Decimal?      @db.Decimal(12, 2)
+  // 트레일링 스탑용 고점 (watching_for_sell 진입 이후 관측된 최고가). 이게 갱신될 때마다
+  // sellAmtLow를 peakPrice 기준으로 다시 계산해서 손절선을 따라 올린다 (내려가지는 않음).
+  peakPrice      Decimal?      @db.Decimal(12, 2)
   highOrLow      String?
   stateMessage   String?
   updatedAt      DateTime      @updatedAt
