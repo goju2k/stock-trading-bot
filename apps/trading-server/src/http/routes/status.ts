@@ -3,7 +3,7 @@ import { Router } from 'express';
 import { getKisEnvConfig } from '../../kis/env';
 import { todayDateOnly } from '../../lib/date';
 import { getPrisma } from '../../lib/prisma';
-import { TradingRuntime, isScannerRunning, isViScannerRunning } from '../../trading';
+import { TradingRuntime, isGapScannerRunning, isScannerRunning, isViScannerRunning } from '../../trading';
 import { asyncHandler } from '../async-handler';
 
 export const statusRouter = Router();
@@ -24,6 +24,7 @@ statusRouter.get('/', asyncHandler(async (_req, res) => {
     kisEnv: safeKisEnv(),
     scannerRunning: isScannerRunning(),
     viScannerRunning: isViScannerRunning(),
+    gapScannerRunning: isGapScannerRunning(),
     activeWatcherCount: TradingRuntime.active().length,
     session: session && {
       date: session.sessionDate,

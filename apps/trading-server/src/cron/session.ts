@@ -8,9 +8,11 @@ import {
   isScannerRunning,
   resumeOpenWatchers,
   startForeignInstitutionCache,
+  startGapScanner,
   startScanner,
   startViScanner,
   stopForeignInstitutionCache,
+  stopGapScanner,
   stopScanner,
   stopViScanner,
 } from '../trading';
@@ -19,11 +21,13 @@ function startAllScanners(sessionId: number) {
   startForeignInstitutionCache();
   startScanner(sessionId);
   startViScanner(sessionId);
+  startGapScanner(sessionId);
 }
 
 function stopAllScanners() {
   stopScanner();
   stopViScanner();
+  stopGapScanner();
   stopForeignInstitutionCache();
 }
 

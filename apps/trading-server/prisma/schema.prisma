@@ -49,6 +49,12 @@ model TradingConfig {
   requireForeignInstitutionNetBuy Boolean @default(true)
   // VI 해제 모멘텀 전략(vi-scanner.ts) on/off. 메인 전략과 별개로 끌 수 있는 스위치.
   viStrategyEnabled  Boolean  @default(true)
+  // 시가 갭 상승 전략(gap-scanner.ts) on/off.
+  gapStrategyEnabled Boolean  @default(true)
+  // 전일종가 대비 시가 갭이 이 값(%) 이상이면 매수 후보.
+  gapUpThresholdPercent Float @default(3)
+  // 세션 시작(openedAt) 이후 이 분(分) 동안만 갭 스캐너가 동작 (장 시작 직후 갭에만 반응).
+  gapScanWindowMinutes  Int   @default(10)
   updatedAt          DateTime @updatedAt
 
   @@map("trading_config")

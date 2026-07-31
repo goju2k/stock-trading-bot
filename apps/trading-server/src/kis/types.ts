@@ -74,3 +74,14 @@ export interface ForeignInstitutionItem {
   frgn_ntby_qty: string; // 외국인 순매수 수량
   orgn_ntby_qty: string; // 기관계 순매수 수량
 }
+
+// [국내주식] 등락률 순위 [v1_국내주식-088]. 종목코드 필드명이 다른 순위류 API와 다르게
+// stck_shrn_iscd 인 점 주의 (volume-rank/vi-status/foreign-institution은 mksc_shrn_iscd).
+export interface FluctuationItem {
+  hts_kor_isnm: string; // 종목명
+  stck_shrn_iscd: string; // 종목코드
+  stck_prpr: string; // 현재가
+  prdy_ctrt: string; // 전일 대비율 (현재가 vs 전일종가)
+  oprc_vrss_prpr_rate: string; // 시가 대비 현재가 비율 (현재가 vs 시가) - 시가 역산에 사용
+  acml_vol: string; // 누적거래량
+}

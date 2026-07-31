@@ -1,6 +1,6 @@
 import { getKisClient } from './client';
 import { COMMON_TR_ID } from './tr-id';
-import { BusinessDayItem, ForeignInstitutionItem, KisResponse, ViStatusItem, VolumeRankItem } from './types';
+import { BusinessDayItem, FluctuationItem, ForeignInstitutionItem, KisResponse, ViStatusItem, VolumeRankItem } from './types';
 
 export interface VolumeRankFilter {
   minPrice: number;
@@ -72,6 +72,35 @@ export async function fetchForeignInstitutionNetBuyTop() {
         FID_ETC_CLS_CODE: '0', // 0:전체(외국인+기관계+기타)
       },
       headers: { tr_id: COMMON_TR_ID.foreignInstitutionTotal },
+    },
+  );
+  return res.data.output || [];
+}
+
+// 등락률 순위 (시가 갭 상승 스캔용). 개별 종목 시세 API 없이도 시가를 역산할 수 있게
+// prdy_ctrt(전일종가 대비)와 oprc_vrss_prpr_rate(시가 대비)를 같이 반환한다.
+export async function fetchFluctuationRank(filter: VolumeRankFilter) {
+  const client = await getKisClient();
+  const res = await client.get<KisResponse<FluctuationItem[]>>(
+    'uapi/domestic-stock/v1/ranking/fluctuation',
+    {
+      params: {
+        fid_cond_mrkt_div_code: 'J',
+        fid_cond_scr_div_code: '20170',
+        fid_input_iscd: '0000',
+        fid_rank_sort_cls_code: '0', // 0:상승율순
+        fid_input_cnt_1: '0',
+        fid_prc_cls_code: '0',
+        fid_input_price_1: filter.minPrice,
+        fid_input_price_2: filter.maxPrice,
+        fid_vol_cnt: filter.minVolume,
+        fid_trgt_cls_code: '0',
+        fid_trgt_exls_cls_code: '0',
+        fid_div_cls_code: '0',
+        fid_rsfl_rate1: '',
+        fid_rsfl_rate2: '',
+      },
+      headers: { tr_id: COMMON_TR_ID.fluctuation },
     },
   );
   return res.data.output || [];

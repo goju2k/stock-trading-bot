@@ -9,9 +9,12 @@ export const configRouter = Router();
 const NUMBER_FIELDS = [
   'refreshRateMs', 'highPercentage', 'lowPercentage', 'maxOrderAmt',
   'minTargetAmt', 'minTradingCount', 'targetUpRating', 'targetIncreaseRate',
+  'gapUpThresholdPercent', 'gapScanWindowMinutes',
 ] as const;
 
-const BOOLEAN_FIELDS = [ 'autoTradingEnabled', 'requireForeignInstitutionNetBuy', 'viStrategyEnabled' ] as const;
+const BOOLEAN_FIELDS = [
+  'autoTradingEnabled', 'requireForeignInstitutionNetBuy', 'viStrategyEnabled', 'gapStrategyEnabled',
+] as const;
 
 // 기존 AdvanceOrder.tsx 설정 화면이 편집하던 필드 그대로. 실거래 금액/비율이라 최소한의
 // 타입/범위 검증만 한다 (zod 등 별도 라이브러리 없이 이 레포 관례대로 손으로 체크).
