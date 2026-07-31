@@ -1,0 +1,108 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this is
+
+An automated stock trading bot for the Korea Investment & Securities (한국투자증권, KIS) Open API.
+
+The repo is mid-migration from a **browser-driven** architecture (React SPA polls KIS directly and runs the trading state machine client-side) to a **server-driven** one (`apps/trading-server` runs cron-scheduled auto-trading unattended; the browser app becomes a thin control/monitor surface). Both halves currently coexist:
+
+- **Legacy (still running, unmodified during the migration)**: React SPA (`apps/stock-trading-bot`) + `apps/kis-server` proxy. Watches trading-volume-ranked stocks, auto-buys based on configurable criteria, auto-sells at configured profit/loss percentages — all client-side, only while the browser tab is open.
+- **New (active development)**: `apps/trading-server` — see "Server-side auto-trading" below. Owns KIS credentials itself, runs 4 independent entry strategies + a shared trailing-stop exit, and exposes a REST API for a future control frontend + Android push.
+
+## Repo layout
+
+Nx monorepo (npm workspaces, Nx 17), one `tsconfig.base.json` with path aliases:
+
+- `apps/stock-trading-bot` — the React 18 SPA (Vite, styled-components, Recoil). Entry: `src/main.tsx` → `src/app/app.tsx`. **Legacy** — calls KIS directly from the browser via `apps/kis-server`.
+- `apps/kis-server` — Express proxy (`src/main.mjs`) that forwards `/api-proxy/*` to `openapi.koreainvestment.com:9443`, injecting `appkey`/`appsecret`/`authorization` headers from whatever the browser sends. Exists solely to get around KIS API host/CORS restrictions from the browser. Kept running as-is for the legacy FE; `apps/trading-server` does **not** go through it (see below).
+- `apps/trading-server` — Express + Prisma/Postgres app that owns KIS credentials and runs auto-trading unattended on a cron schedule. See "Server-side auto-trading" below.
+- `services/trading` (`@services/trading`) — legacy FE trading feature: pages (`Main`, `AdvanceOrder`, `LogCenter`), hooks, and the `SellByPercent` trading strategy. Not used by `trading-server` (that app has its own parallel, DB-backed reimplementation under `apps/trading-server/src/trading/`).
+- `shared/apis/kis` (`@shared/apis/kis`) — legacy FE's KIS REST API client (axios + browser-localStorage token cache). `trading-server` does **not** import this (browser-only globals); it has its own client under `apps/trading-server/src/kis/`.
+- `shared/states/global` (`@shared/states/global`) — Recoil atoms and the `TradingStrategy` abstract class; app config and order-list state, persisted via `local-store`.
+- `shared/hooks/api-hook` / `shared/hooks/util-hook` — `useKisApi` (fetch+cache+session-retry wrapper around KIS API functions) and small utility hooks (`useStateRef`, rerender).
+- `shared/ui/design-system-v1` — shared styled-components UI kit (layout primitives, buttons, toast, routing components).
+- `shared/utils/date`, `shared/utils/localstorage` — small standalone utilities (`ObjectBasedLocalStore`, `ListBasedLocalStore`).
+
+Path aliases (see `tsconfig.base.json`) map each `shared/*`/`services/*` library to its `src/index.ts` barrel — always import from the alias (e.g. `@shared/apis/kis`), not by relative path across project boundaries. `apps/trading-server` is a standalone Express app and doesn't use these aliases (plain relative imports within `apps/trading-server/src/`).
+
+## Legacy architecture / data flow (apps/stock-trading-bot, browser-driven)
+
+1. **`CheckBalance`** (`shared/apis/kis/src/run-process/check-balance.ts`) is a singleton poller: once it has listeners, it calls `InquireBalance` on a 1s `setTimeout` loop and fan-outs the result to all registered listeners. Started/stopped once in `App` via `CheckBalance.run()` / `.destroy()`.
+2. **`TradingStrategy`** (`shared/states/global/src/order/abstract/trading-strategy.ts`) is an abstract state machine (`checking → watching-for-sell → sell-waiting → done|error`) per stock code. `SellByPercent` (`services/trading/src/trading-strategy/sell-by-percent.ts`) is the concrete strategy: it registers `CheckBalance` listeners at each state to react to balance/price changes, places market sell orders via `OrderCache` when a high/low % target is hit, and calls `removeOrderToday()` when done.
+3. **`useKisApi`** (`shared/hooks/api-hook`) wraps a KIS API function with React state, an in-memory response cache keyed by `JSON.stringify(request)`, and automatic retry (up to 5x) when the API responds with a `nosession` code (stale token).
+4. **Recoil state** (`shared/states/global`) holds `OrderDate`/`OrderStocks`/`OrderTrading` (today's order list, persisted to localStorage via `OrderListStore`) and `AppConfig` (trading parameters: refresh rate, working hours, buy/sell %, order amount limits — persisted via `ObjectBasedLocalStore`).
+5. **Token handling**: `axios-instance.ts` reads a cached token from `window.localStorage['kis-token']`, refreshes it via `oauth2/tokenP` when missing or when the API returns a session-expired error code (`EGW00121`/`EGW00123`), and rebuilds the axios instance with the new token.
+6. All KIS request bodies/headers use the API's native field names (e.g. `PDNO`, `ORD_QTY`, `tr_id`) — these correspond 1:1 to KIS Open API documentation, not internal conventions.
+
+## Server-side auto-trading (apps/trading-server)
+
+Express + Prisma/Postgres app, structurally independent from the rest of the monorepo (no `@shared/*` imports — see Repo layout above). Calls `openapi.koreainvestment.com:9443` (real) / `openapivts.koreainvestment.com:29443` (paper) directly; does not go through `apps/kis-server`.
+
+**KIS client** (`apps/trading-server/src/kis/`): `env.ts` resolves `KIS_ENV` (`paper` default | `real`) to the matching `KIS_REAL_*`/`KIS_PAPER_*` env vars; `tr-id.ts` maps buy/sell/balance tr_id per env (`V`-prefix paper vs `T`-prefix real — paper also uses the plain `inquire-balance` endpoint instead of `inquire-balance-rlz-pl`, since realized-P&L isn't available on paper accounts). `client.ts` owns the access token itself (persisted in the `kis_tokens` table, not browser localStorage). `quotations.ts` wraps 4 KIS ranking/status endpoints — see Strategies below for which one feeds which.
+
+**Cron schedule** (`src/cron/schedule.ts` + `session.ts`, `node-cron`, `Asia/Seoul`, weekdays only): `09:00` opens today's `trading_sessions` row (checks business day via KIS, starts all 4 strategy scanners + the foreign-institution cache) → `15:25` stops new-order scanning and force-sells (`PositionWatcher.forceSell`) every still-open position ahead of the `15:30` market close → `16:00` marks the session closed (open `PositionWatcher`s / `BalancePoller` are left running regardless — the exit side doesn't stop on a clock). On boot, `resumeTodaySessionIfNeeded()` re-attaches in-memory watchers/scanners if the process restarted mid-session (crash/redeploy).
+
+**Entry strategies** (`src/trading/*-scanner.ts`), all independently toggleable via `TradingConfig` and all funneling into the same `executeBuy()` (`execute-buy.ts`) → same `PositionWatcher` exit:
+- `scanner.ts` — 거래대금순위 (KIS `volume-rank`, `FID_BLNG_CLS_CODE=3`), optionally required to also appear in `foreign-institution-cache.ts`'s 5-min-refreshed 외국인/기관 순매수 상위 list (`requireForeignInstitutionNetBuy`).
+- `vi-scanner.ts` — VI(변동성완화장치) release momentum: KIS `inquire-vi-status`, buys codes released within the last 3 minutes (`viStrategyEnabled`).
+- `gap-scanner.ts` — opening gap-up: KIS `ranking/fluctuation` doesn't expose 시가 directly, so it's derived from `prdy_ctrt` (vs prev close) and `oprc_vrss_prpr_rate` (vs today's open) returned on the same row; only runs for `gapScanWindowMinutes` after session open, then self-stops (`gapStrategyEnabled`).
+- Each scanner keeps its own same-day dedup pool (`passedCodes` / `viActedCodes` on `trading_sessions`) but all three share one `getOrderedCodesToday()` check (`session-orders.ts`) so they never double-buy the same code.
+
+**Exit** (`src/trading/position-watcher.ts`): per-position state machine (`checking → watching_for_sell → sell_waiting → done|error`), one row per `Order` in `position_watchers`. Take-profit (`sellAmtHigh`) is fixed at entry; stop-loss (`sellAmtLow`) trails a tracked high-water mark (`peakPrice`) upward as price rises and never retreats. Reacts to `BalancePoller` (`balance-poller.ts`, the server-side `CheckBalance` equivalent — one 1s poll loop for the whole process, active only while it has listeners).
+
+**Persistence**: Postgres via Prisma (`prisma/schema.prisma`, migrations in `prisma/migrations/`). `TradingConfig` is a singleton row (id=1) holding everything the AdvanceOrder screen used to control, plus per-strategy on/off + threshold fields. `Order`.`sourceStrategy` tags which scanner bought a position (`'volume_rank' | 'vi_release' | 'gap_up'`). `TradeEvent` is the append-only log (buy/sell/error/session boundaries) — the intended source for the eventual FCM push trigger.
+
+**REST API** (`src/http/`, mounted at `/api`): every route requires an `x-api-key` header matching `API_TOKEN` — **fail-closed**, i.e. if `API_TOKEN` isn't set the whole API 500s rather than opening up. `GET /status`, `GET/PUT /config`, `GET /positions` + `POST /positions/:code/force-sell`, `GET /orders`, `GET /events`, `POST/DELETE /devices` (FCM token registry — nothing sends pushes yet, that's still open work).
+
+## Commands
+
+Run everything from the repo root via `nx` (or `npx nx` if not installed globally); project names come from each `project.json` (`stock-trading-bot`, `kis-server`, `trading-server`, `trading`, `kis`, `api-hook`, `util-hook`, `global`, `design-system-v1`, `date`, `localstorage`).
+
+```bash
+# Frontend app (dev server, port 4200)
+npm start                          # = nx serve stock-trading-bot
+npm run build                      # = nx build stock-trading-bot, then after.mjs copies dist into an Android assets folder (path hardcoded — irrelevant off that machine)
+
+# Proxy server (dev, defaults to port 3000) — legacy, used only by apps/stock-trading-bot
+npm run server                     # = nx serve kis-server
+npm run build-server               # = nx build kis-server
+npm run image-server               # docker build using apps/kis-server/Dockerfile
+nx docker-build kis-server         # alternative docker build target defined in project.json
+
+# Trading server (dev, defaults to port 3001)
+npm run server-trading              # = nx serve trading-server
+npm run build-trading-server        # = nx build trading-server
+npm run image-trading-server        # docker build using apps/trading-server/Dockerfile
+npm run db:generate                 # prisma generate (schema: apps/trading-server/prisma/schema.prisma)
+npm run db:migrate                  # prisma migrate dev — needs DATABASE_URL in .env.local
+npm run db:deploy                   # prisma migrate deploy (non-interactive, for CI/deploy)
+
+# Lint (per-project; also runs via nx affected)
+npx eslint --fix .                 # = npm run fix
+nx lint <project>
+nx affected -t lint
+
+# Tests
+nx test trading                    # services/trading — Vitest
+nx test <shared-lib-name>          # shared libs (kis, api-hook, util-hook, global, design-system-v1, date, localstorage) — Jest
+nx test stock-trading-bot          # apps/stock-trading-bot — Vitest
+nx test <project> --testFile=<pattern>   # single test file (Vitest projects)
+nx affected -t test                # run tests for everything touched vs defaultBase (master)
+```
+
+Notes:
+- `services/trading` and the app use **Vitest** (`@nx/vite:test`); every `shared/*` library uses **Jest** (`@nx/jest:jest`) — check `project.json`'s `test` target before assuming which runner applies. `trading-server` has no tests yet.
+- Nx caches `build`/`lint`/test targets; if output looks stale, add `--skip-nx-cache`.
+- `.env.local` (git-ignored, shared by both the Vite FE and `trading-server`'s `dotenv.config()`) supplies:
+  - FE: `VITE_KIS_HOST`, `VITE_KIS_APP_KEY`, `VITE_KIS_APP_SECRET`, `VITE_KIS_CANO`, `VITE_KIS_TOKEN`.
+  - `trading-server`: `DATABASE_URL` (Postgres), `KIS_ENV` (`paper`|`real`), `KIS_REAL_HOST`/`KIS_REAL_APP_KEY`/`KIS_REAL_APP_SECRET`/`KIS_REAL_CANO`, `KIS_PAPER_HOST`/`KIS_PAPER_APP_KEY`/`KIS_PAPER_APP_SECRET`/`KIS_PAPER_CANO`, `API_TOKEN` (REST API auth), `HOST`/`PORT`.
+  - Never commit real values or print them. Paper-trading appkey/secret are issued separately from real ones on the KIS developer portal.
+
+## Conventions
+
+- ESLint config (`.eslintrc.json`) extends `airbnb`/`airbnb/hooks`; notable non-default rules: single-quote JSX (`jsx-quotes: prefer-single`), always-multiline trailing commas, 2-space indent, no final newline (`eol-last: never`), enforced `import/order` (external → builtin → internal → sibling → parent → index, alphabetized, blank line between groups), `no-unused-vars`/`no-shadow` handled by the TS-aware variants only.
+- Styling is styled-components throughout (Nx generator default is set to `"style": "styled-components"` in `nx.json`); new components/libraries generated with `nx g @nx/react:component|library` will inherit this.
+- Korean-language inline comments and UI strings are used throughout the trading logic to describe domain behavior (state meanings, order semantics) — match this when touching those files.
+- When adding/changing a KIS endpoint call in `apps/trading-server/src/kis/`, verify the exact `tr_id`/path/param names against KIS's own example code (`gh api repos/koreainvestment/open-trading-api/contents/examples_llm/domestic_stock/<endpoint>/<endpoint>.py`) rather than guessing — KIS's docs and field-naming aren't fully consistent across endpoints (e.g. `mksc_shrn_iscd` vs `stck_shrn_iscd` for "종목코드" depending on which ranking API). This is how every tr_id currently in the codebase was confirmed.
