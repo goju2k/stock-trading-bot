@@ -1,20 +1,9 @@
 import { getTradingConfig } from '../config/trading-config';
 import { fetchBusinessDay } from '../kis';
 import { getKisEnvConfig } from '../kis/env';
+import { todayDateOnly, todayYYYYMMDD } from '../lib/date';
 import { getPrisma } from '../lib/prisma';
 import { TradingRuntime, isScannerRunning, resumeOpenWatchers, startScanner, stopScanner } from '../trading';
-
-function todayDateOnly() {
-  const now = new Date();
-  return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
-}
-
-function todayYYYYMMDD() {
-  const now = new Date();
-  const mm = String(now.getMonth() + 1).padStart(2, '0');
-  const dd = String(now.getDate()).padStart(2, '0');
-  return `${now.getFullYear()}${mm}${dd}`;
-}
 
 // 09:00 평일 트리거. 개장일이고 자동매매가 켜져 있으면 세션을 열고 TradingScanner를 시작한다.
 export async function openTodaySession() {
