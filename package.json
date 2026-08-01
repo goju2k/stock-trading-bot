@@ -15,6 +15,8 @@
     "db:generate": "prisma generate --schema=apps/trading-server/prisma/schema.prisma",
     "db:migrate": "prisma migrate dev --schema=apps/trading-server/prisma/schema.prisma",
     "db:deploy": "prisma migrate deploy --schema=apps/trading-server/prisma/schema.prisma",
+    "start-control": "nx serve trading-control",
+    "build-control": "nx build trading-control",
     "fix": "eslint --fix"
   },
   "private": true,
