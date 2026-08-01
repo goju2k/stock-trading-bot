@@ -106,9 +106,13 @@ export async function fetchFluctuationRank(filter: VolumeRankFilter) {
   return res.data.output || [];
 }
 
-// 기준일자(YYYYMMDD)의 개장여부 조회
+// 기준일자(YYYYMMDD)의 개장여부 조회.
+// NOTE: 모의투자 계좌로 실제 호출해보니 EGW02006("모의투자 TR 이 아닙니다")로 거부됨 -
+// 개장일 여부는 계좌와 무관한 공개 시장정보인데 이 TR 자체가 모의투자에서 지원 안 되는 것으로
+// 확인됨. 그래서 현재 거래 모드(KIS_ENV)와 무관하게 항상 real 자격증명으로 호출한다
+// (KIS_REAL_* 가 반드시 설정돼 있어야 함 - paper 전용으로만 쓰더라도 필요).
 export async function fetchBusinessDay(baseDate: string) {
-  const client = await getKisClient();
+  const client = await getKisClient('real');
   const res = await client.get<KisResponse<BusinessDayItem[]>>(
     'uapi/domestic-stock/v1/quotations/chk-holiday',
     {
