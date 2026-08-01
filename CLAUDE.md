@@ -9,7 +9,7 @@ An automated stock trading bot for the Korea Investment & Securities (한국투�
 The repo is mid-migration from a **browser-driven** architecture (React SPA polls KIS directly and runs the trading state machine client-side) to a **server-driven** one (`apps/trading-server` runs cron-scheduled auto-trading unattended; the browser app becomes a thin control/monitor surface). Both halves currently coexist:
 
 - **Legacy (still running, unmodified during the migration)**: React SPA (`apps/stock-trading-bot`) + `apps/kis-server` proxy. Watches trading-volume-ranked stocks, auto-buys based on configurable criteria, auto-sells at configured profit/loss percentages — all client-side, only while the browser tab is open.
-- **New (active development)**: `apps/trading-server` — see "Server-side auto-trading" below. Owns KIS credentials itself, runs 4 independent entry strategies + a shared trailing-stop exit, and exposes a REST API for a future control frontend + Android push.
+- **New (active development)**: `apps/trading-server` — see "Server-side auto-trading" below. Owns KIS credentials itself, runs 4 independent entry strategies + a shared trailing-stop exit, exposes a REST API, and sends Discord notifications. `apps/trading-control` is the REST client for it (see "Control frontend" below).
 
 ## Repo layout
 
@@ -18,6 +18,7 @@ Nx monorepo (npm workspaces, Nx 17), one `tsconfig.base.json` with path aliases:
 - `apps/stock-trading-bot` — the React 18 SPA (Vite, styled-components, Recoil). Entry: `src/main.tsx` → `src/app/app.tsx`. **Legacy** — calls KIS directly from the browser via `apps/kis-server`.
 - `apps/kis-server` — Express proxy (`src/main.mjs`) that forwards `/api-proxy/*` to `openapi.koreainvestment.com:9443`, injecting `appkey`/`appsecret`/`authorization` headers from whatever the browser sends. Exists solely to get around KIS API host/CORS restrictions from the browser. Kept running as-is for the legacy FE; `apps/trading-server` does **not** go through it (see below).
 - `apps/trading-server` — Express + Prisma/Postgres app that owns KIS credentials and runs auto-trading unattended on a cron schedule. See "Server-side auto-trading" below.
+- `apps/trading-control` — React 18 SPA (Vite, styled-components) that's the REST client for `apps/trading-server`, meant to be loaded in an Android WebView. See "Control frontend" below.
 - `services/trading` (`@services/trading`) — legacy FE trading feature: pages (`Main`, `AdvanceOrder`, `LogCenter`), hooks, and the `SellByPercent` trading strategy. Not used by `trading-server` (that app has its own parallel, DB-backed reimplementation under `apps/trading-server/src/trading/`).
 - `shared/apis/kis` (`@shared/apis/kis`) — legacy FE's KIS REST API client (axios + browser-localStorage token cache). `trading-server` does **not** import this (browser-only globals); it has its own client under `apps/trading-server/src/kis/`.
 - `shared/states/global` (`@shared/states/global`) — Recoil atoms and the `TradingStrategy` abstract class; app config and order-list state, persisted via `local-store`.
@@ -40,7 +41,7 @@ Path aliases (see `tsconfig.base.json`) map each `shared/*`/`services/*` library
 
 Express + Prisma/Postgres app, structurally independent from the rest of the monorepo (no `@shared/*` imports — see Repo layout above). Calls `openapi.koreainvestment.com:9443` (real) / `openapivts.koreainvestment.com:29443` (paper) directly; does not go through `apps/kis-server`.
 
-**KIS client** (`apps/trading-server/src/kis/`): `env.ts` resolves `KIS_ENV` (`paper` default | `real`) to the matching `KIS_REAL_*`/`KIS_PAPER_*` env vars; `tr-id.ts` maps buy/sell/balance tr_id per env (`V`-prefix paper vs `T`-prefix real — paper also uses the plain `inquire-balance` endpoint instead of `inquire-balance-rlz-pl`, since realized-P&L isn't available on paper accounts). `client.ts` owns the access token itself (persisted in the `kis_tokens` table, not browser localStorage). `quotations.ts` wraps 4 KIS ranking/status endpoints — see Strategies below for which one feeds which.
+**KIS client** (`apps/trading-server/src/kis/`): `env.ts` resolves `KIS_ENV` (`paper` default | `real`) to the matching `KIS_REAL_*`/`KIS_PAPER_*` env vars, or takes an explicit override; `tr-id.ts` maps buy/sell/balance tr_id per env (`V`-prefix paper vs `T`-prefix real — paper also uses the plain `inquire-balance` endpoint instead of `inquire-balance-rlz-pl`, since realized-P&L isn't available on paper accounts). `client.ts` owns access tokens itself (persisted in the `kis_tokens` table, not browser localStorage), cached **per env** (`Map<KisEnvName, ...>`) rather than a single instance — `fetchBusinessDay` (chk-holiday) is hardcoded to always call with `real` credentials regardless of the active `KIS_ENV`, because that tr_id isn't available on paper accounts at all (confirmed by hitting it live — `EGW02006 모의투자 TR 이 아닙니다`), so a `paper`-mode process still needs a live `real` client alongside its `paper` one. `quotations.ts` wraps the KIS ranking/status endpoints — see Strategies below for which one feeds which.
 
 **Cron schedule** (`src/cron/schedule.ts` + `session.ts`, `node-cron`, `Asia/Seoul`, weekdays only): `09:00` opens today's `trading_sessions` row (checks business day via KIS, starts all 4 strategy scanners + the foreign-institution cache) → `15:25` stops new-order scanning and force-sells (`PositionWatcher.forceSell`) every still-open position ahead of the `15:30` market close → `16:00` marks the session closed (open `PositionWatcher`s / `BalancePoller` are left running regardless — the exit side doesn't stop on a clock). On boot, `resumeTodaySessionIfNeeded()` re-attaches in-memory watchers/scanners if the process restarted mid-session (crash/redeploy).
 
@@ -52,13 +53,34 @@ Express + Prisma/Postgres app, structurally independent from the rest of the mon
 
 **Exit** (`src/trading/position-watcher.ts`): per-position state machine (`checking → watching_for_sell → sell_waiting → done|error`), one row per `Order` in `position_watchers`. Take-profit (`sellAmtHigh`) is fixed at entry; stop-loss (`sellAmtLow`) trails a tracked high-water mark (`peakPrice`) upward as price rises and never retreats. Reacts to `BalancePoller` (`balance-poller.ts`, the server-side `CheckBalance` equivalent — one 1s poll loop for the whole process, active only while it has listeners).
 
-**Persistence**: Postgres via Prisma (`prisma/schema.prisma`, migrations in `prisma/migrations/`). `TradingConfig` is a singleton row (id=1) holding everything the AdvanceOrder screen used to control, plus per-strategy on/off + threshold fields. `Order`.`sourceStrategy` tags which scanner bought a position (`'volume_rank' | 'vi_release' | 'gap_up'`). `TradeEvent` is the append-only log (buy/sell/error/session boundaries) — the intended source for the eventual FCM push trigger.
+**Persistence**: Postgres via Prisma (`prisma/schema.prisma`, migrations in `prisma/migrations/`). `TradingConfig` is a singleton row (id=1) holding everything the AdvanceOrder screen used to control, plus per-strategy on/off + threshold fields. `Order`.`sourceStrategy` tags which scanner bought a position (`'volume_rank' | 'vi_release' | 'gap_up'`). `TradeEvent` is the append-only log (buy/sell/error/session boundaries).
 
-**REST API** (`src/http/`, mounted at `/api`): every route requires an `x-api-key` header matching `API_TOKEN` — **fail-closed**, i.e. if `API_TOKEN` isn't set the whole API 500s rather than opening up. `GET /status`, `GET/PUT /config`, `GET /positions` + `POST /positions/:code/force-sell`, `GET /orders`, `GET /events`, `POST/DELETE /devices` (FCM token registry — nothing sends pushes yet, that's still open work).
+**Notifications** (`src/notify/discord.ts` + `src/trading/log-trade-event.ts`): `logTradeEvent()` is the *only* place code should write to `trade_events` — it wraps the Prisma insert and, only for `session_start`/`session_end`/`buy_executed`/`sell_executed`/`forced_liquidation`, also sends a color-coded embed to `DISCORD_WEBHOOK_URL` (no-ops silently if that env var is unset — a notification failure must never block trading). `buy_failed`/`sell_failed`/`error` are recorded but not notified (not requested yet). `closeTodaySession()` (`cron/session.ts`) additionally builds a same-day summary (`buildSessionSummary`) — buy count / done vs still-open sell count / estimated realized P&L, computed by joining `sell_executed`/`forced_liquidation` event payloads back to `orders.buyPrice` by code — and includes it in the session_end message.
+
+**REST API** (`src/http/`, mounted at `/api`): every route requires an `x-api-key` header matching `API_TOKEN` — **fail-closed**, i.e. if `API_TOKEN` isn't set the whole API 500s rather than opening up. `GET /status`, `GET/PUT /config`, `GET /positions` + `POST /positions/:code/force-sell`, `GET /orders`, `GET /events`, `POST/DELETE /devices` (FCM token registry — registration only, nothing actually sends an FCM push yet; live trade/session alerts go out via the Discord webhook above instead).
+
+## Control frontend (apps/trading-control)
+
+React 18 SPA (Vite, styled-components) — a REST client for `apps/trading-server`'s `/api/*`, nothing else; it does not talk to KIS directly. Meant to be loaded inside an Android WebView (native shell/bridge is a separate project, out of this repo's scope).
+
+- `src/api/client.ts` — thin `fetch` wrapper that attaches `x-api-key: VITE_TRADING_SERVER_API_TOKEN` to every call against `VITE_TRADING_SERVER_HOST`.
+- Pages (`src/app/pages/`): `DashboardPage` (status + positions, 5s poll, force-sell button), `ConfigPage` (GET/PUT the `TradingConfig` row via an `@mint-ui/core` `Table` form, including `formType: 'check'` for the boolean strategy toggles), `LogsPage` (`trade_events`, 5s poll).
+- Reuses `@mint-ui/core` (the same third-party component kit `services/trading` uses) plus only the *generic* pieces of `shared/ui/design-system-v1` — `GlobalStyleV1`, `MainToastContextProvider`/`useShowToastHook`, `ComponentRoutes`/`ComponentRoute`/`ComponentRouteLink`. Deliberately does **not** reuse `AppContainer`/`PageContainer`/`Header`/`Footer`: `Footer` hardcodes the legacy app's own menu items and `PageContainer` is wired to Recoil's `PageState`, so `trading-control` has its own minimal shell (`app.tsx`) instead and carries no Recoil dependency at all.
+- Two bugs found and fixed here that affect any future consumer of these shared libs: `shared/ui/design-system-v1`'s `routes/index.ts` barrel was missing `export * from './ComponentRouteLink'` (legacy code worked around it with a relative import instead of the alias). `@mint-ui/core`'s `Flex` defaults to `height: 100%; overflow: auto;` when `flexHeight`/`flexOverflow` aren't passed, which clips column-stacked content with more than ~2 rows — worth remembering when composing new layouts with it (`trading-control`'s local `Card` component sets `flexHeight='fit-content'` to opt out).
+
+## Deployment (Jenkins on the home server)
+
+`apps/trading-server` deploys via a shared Jenkins instance at `home.ribs.kr:10000` (also hosts an unrelated project, "ribs" — its jobs were the template for these). Not part of this repo, but documenting the conventions here since the job definitions are the actual source of truth for how this app runs in production:
+
+- **Jobs**: `build-trading-server` (checks out the `feature/2026-new-bot` branch → `npm ci` + `npm run db:generate` + `npm run build-trading-server` + `npm run image-trading-server`, i.e. `docker build -t trading-server:latest`) → on SUCCESS auto-triggers `deploy-trading-server` (`docker rm -f trading-server` then `docker run` with secrets injected as `-e VAR=$VAR`, `-p 3364:3364`) → `stop-trading-server` (`docker stop trading-server` — the fast kill-switch if something looks wrong; posts to Discord either way).
+- **Credentials**: every secret `.env.local` value trading-server needs is duplicated into Jenkins as a Secret-text credential prefixed `TRADING_` (e.g. `TRADING_DATABASE_URL`, `TRADING_KIS_PAPER_APP_KEY`, `TRADING_DISCORD_WEBHOOK_URL`), bound in `deploy-trading-server`'s `SecretBuildWrapper`. Non-secret values (`KIS_REAL_HOST`/`KIS_PAPER_HOST`/`HOST`/`PORT`, and **`KIS_ENV=paper`**) are hardcoded directly in the job's shell command instead of round-tripped through a credential — `KIS_ENV` in particular is deliberately not a credential so it can't be silently left on `real`.
+- **Known gotcha**: `POST /job/<name>/config.xml` (in-place job update via the Jenkins REST API) 500s under this instance's permission setup, even though `createItem`/`doDelete`/credential management all work fine with the same token. The working pattern is delete-then-`createItem` instead (fine here — these jobs carry no build history worth preserving).
+- **Known gotcha**: the Dockerfile's `prisma generate` step must pin the same Prisma version as `package.json`'s `"prisma"` devDependency (currently `6.19.3`). An unpinned `npx prisma generate` grabs whatever's newest on the registry at image-build time — Prisma 7 dropped the `datasource.url`-in-schema syntax this project's `schema.prisma` uses, so an unpinned build breaks (this happened on the very first real deploy).
+- **Port**: 3364 (container and host). 3363 was tried first but the home network's port-forwarding was already pointed at the unrelated "ribs"/sisulbot service.
 
 ## Commands
 
-Run everything from the repo root via `nx` (or `npx nx` if not installed globally); project names come from each `project.json` (`stock-trading-bot`, `kis-server`, `trading-server`, `trading`, `kis`, `api-hook`, `util-hook`, `global`, `design-system-v1`, `date`, `localstorage`).
+Run everything from the repo root via `nx` (or `npx nx` if not installed globally); project names come from each `project.json` (`stock-trading-bot`, `kis-server`, `trading-server`, `trading-control`, `trading`, `kis`, `api-hook`, `util-hook`, `global`, `design-system-v1`, `date`, `localstorage`).
 
 ```bash
 # Frontend app (dev server, port 4200)
@@ -79,6 +101,10 @@ npm run db:generate                 # prisma generate (schema: apps/trading-serv
 npm run db:migrate                  # prisma migrate dev — needs DATABASE_URL in .env.local
 npm run db:deploy                   # prisma migrate deploy (non-interactive, for CI/deploy)
 
+# Control frontend (dev server, port 4201)
+npm run start-control                # = nx serve trading-control
+npm run build-control                # = nx build trading-control
+
 # Lint (per-project; also runs via nx affected)
 npx eslint --fix .                 # = npm run fix
 nx lint <project>
@@ -93,9 +119,10 @@ nx affected -t test                # run tests for everything touched vs default
 ```
 
 Notes:
-- `services/trading` and the app use **Vitest** (`@nx/vite:test`); every `shared/*` library uses **Jest** (`@nx/jest:jest`) — check `project.json`'s `test` target before assuming which runner applies. `trading-server` has no tests yet.
+- `services/trading` and both React apps (`stock-trading-bot`, `trading-control`) use **Vitest** (`@nx/vite:test`); every `shared/*` library uses **Jest** (`@nx/jest:jest`) — check `project.json`'s `test` target before assuming which runner applies. `trading-server` and `trading-control` have no tests yet.
 - Nx caches `build`/`lint`/test targets; if output looks stale, add `--skip-nx-cache`.
-- `.env.local` (git-ignored, shared by both the Vite FE and `trading-server`'s `dotenv.config()`) holds all secrets/config; **`.env.example` at the repo root is the checked-in, secret-free spec** — every var name, what it's for, its expected format, and where to obtain it (KIS appkey/secret/CANO come from the KIS developer portal — real and paper are separate applications with separate keys). New machine setup: `cp .env.example .env.local` then fill in real values. Never commit real values or print them.
+- `.env.local` (git-ignored, shared by both Vite apps and `trading-server`'s `dotenv.config()`) holds all secrets/config; **`.env.example` at the repo root is the checked-in, secret-free spec** — every var name, what it's for, its expected format, and where to obtain it (KIS appkey/secret/CANO come from the KIS developer portal — real and paper are separate applications with separate keys). New machine setup: `cp .env.example .env.local` then fill in real values. Never commit real values or print them.
+- `JENKINS_API_TOKEN` also lives in `.env.local` (paired with the `goju2k` Jenkins user for Basic Auth) but isn't in `.env.example` — it's only used to script Jenkins job/credential setup from this machine (see Deployment below), no app code reads it.
 
 ## Conventions
 
