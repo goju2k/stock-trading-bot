@@ -23,6 +23,8 @@ RUN npm --prefix trading-server --omit=dev -f install
 
 # prisma/schema.prisma is copied in via project.json's build "assets". Regenerate the client
 # against it here since @prisma/client's own postinstall can't find a schema outside the app dir.
-RUN npx --prefix trading-server --yes prisma generate --schema=trading-server/prisma/schema.prisma
+# Version pinned to match package.json's "prisma" devDependency - unpinned npx grabs whatever is
+# newest on the registry, and Prisma 7 dropped the datasource.url syntax our schema.prisma uses.
+RUN npx --prefix trading-server --yes prisma@6.19.3 generate --schema=trading-server/prisma/schema.prisma
 
 CMD [ "node", "trading-server" ]
