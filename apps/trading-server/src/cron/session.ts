@@ -6,6 +6,7 @@ import { getPrisma } from '../lib/prisma';
 import {
   TradingRuntime,
   isScannerRunning,
+  logTradeEvent,
   resumeOpenWatchers,
   startForeignInstitutionCache,
   startGapScanner,
@@ -54,12 +55,10 @@ export async function openTodaySession() {
     },
   });
 
-  await prisma.tradeEvent.create({
-    data: {
-      sessionId: session.id,
-      type: 'session_start',
-      message: isBusinessDay ? '세션 시작 (개장일)' : '휴장일 - 세션 시작하지 않음',
-    },
+  await logTradeEvent({
+    sessionId: session.id,
+    type: 'session_start',
+    message: isBusinessDay ? `세션 시작 (개장일, ${env})` : '휴장일 - 세션 시작하지 않음',
   });
 
   if (isBusinessDay) {
@@ -93,15 +92,14 @@ export async function liquidateTodaySession() {
     data: { liquidationAt: new Date() },
   });
 
-  await prisma.tradeEvent.create({
-    data: {
-      sessionId: session.id,
-      type: 'forced_liquidation',
-      message: '15:25 장마감 강제청산 트리거',
-    },
+  const activeWatchers = TradingRuntime.active();
+
+  await logTradeEvent({
+    sessionId: session.id,
+    type: 'forced_liquidation',
+    message: `15:25 장마감 강제청산 트리거 (대상 ${activeWatchers.length}건)`,
   });
 
-  const activeWatchers = TradingRuntime.active();
   console.log(`[cron] liquidating ${activeWatchers.length} open position(s)`);
 
   await Promise.all(activeWatchers.map(async (watcher) => {
@@ -113,7 +111,33 @@ export async function liquidateTodaySession() {
   }));
 }
 
-// 16:00 평일 트리거. 세션 공식 종료 기록. (BalancePoller/미종료 watcher는 계속 둔다 - Phase 2 설계 그대로)
+// 오늘 세션의 매수/매도/실현손익 요약 ("마감내역") - session_end 알림 본문에 쓴다.
+async function buildSessionSummary(sessionId: number) {
+  const prisma = getPrisma();
+  const orders = await prisma.order.findMany({
+    where: { sessionId },
+    include: { positionWatcher: true },
+  });
+
+  const totalBuys = orders.length;
+  const doneCount = orders.filter((o) => o.positionWatcher?.state === 'done').length;
+  const openCount = orders.filter((o) => o.positionWatcher && ![ 'done', 'error' ].includes(o.positionWatcher.state)).length;
+
+  const sellEvents = await prisma.tradeEvent.findMany({ where: { sessionId, type: { in: [ 'sell_executed', 'forced_liquidation' ] }, code: { not: null } } });
+
+  let realizedPnl = 0;
+  sellEvents.forEach((event) => {
+    const order = orders.find((o) => o.code === event.code);
+    const payload = event.payload as { price?: number; qty?: number; } | null;
+    if (order && payload?.price) {
+      realizedPnl += (payload.price - Number(order.buyPrice)) * (payload.qty ?? order.qty);
+    }
+  });
+
+  return `매수 ${totalBuys}건 / 매도완료 ${doneCount}건 (미완료 ${openCount}건) / 실현손익 약 ${realizedPnl.toLocaleString('ko-KR')}원`;
+}
+
+// 16:00 평일 트리거. 세션 공식 종료 기록 + 마감내역 요약. (BalancePoller/미종료 watcher는 계속 둔다)
 export async function closeTodaySession() {
   const sessionDate = todayDateOnly();
   const prisma = getPrisma();
@@ -131,15 +155,15 @@ export async function closeTodaySession() {
     data: { closedAt: new Date() },
   });
 
-  await prisma.tradeEvent.create({
-    data: {
-      sessionId: session.id,
-      type: 'session_end',
-      message: '세션 종료',
-    },
+  const summary = await buildSessionSummary(session.id);
+
+  await logTradeEvent({
+    sessionId: session.id,
+    type: 'session_end',
+    message: `세션 종료 - ${summary}`,
   });
 
-  console.log('[cron] session closed');
+  console.log(`[cron] session closed (${summary})`);
 }
 
 // 서버 부팅 시 1회 호출. 오늘 세션이 열려있는데(closedAt 없음) 프로세스가 재시작된 경우

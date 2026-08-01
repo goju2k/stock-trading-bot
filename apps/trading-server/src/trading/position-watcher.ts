@@ -1,6 +1,7 @@
 import { PositionState } from '@prisma/client';
 
 import { BalanceListener, BalancePoller } from './balance-poller';
+import { logTradeEvent } from './log-trade-event';
 
 import { inquireBalance, placeMarketOrder } from '../kis';
 import { InquireBalanceItem } from '../kis/types';
@@ -111,7 +112,7 @@ export class PositionWatcher {
       return;
     }
 
-    await getPrisma().tradeEvent.create({ data: { type: 'forced_liquidation', code: this.code, message: `[${this.code}] ${reason}`, payload: { qty: current.hldg_qty } } });
+    await logTradeEvent({ type: 'forced_liquidation', code: this.code, message: reason, payload: { qty: current.hldg_qty } });
 
     this.sellWaiting();
   }
@@ -195,7 +196,7 @@ export class PositionWatcher {
         return;
       }
 
-      await getPrisma().tradeEvent.create({ data: { type: 'sell_executed', code: this.code, message: `[${this.code}] 매도주문 완료 (${this.highOrLow})`, payload: { qty, price } } });
+      await logTradeEvent({ type: 'sell_executed', code: this.code, message: `매도주문 완료 (${this.highOrLow})`, payload: { qty, price } });
 
       this.sellWaiting();
     };
@@ -229,7 +230,7 @@ export class PositionWatcher {
     this.state = 'error';
     this.stateMessage = message;
     await this.persist({ state: 'error', stateMessage: message });
-    await getPrisma().tradeEvent.create({ data: { type: 'error', code: this.code, message } });
+    await logTradeEvent({ type: 'error', code: this.code, message });
     this.onDone?.(this);
   }
 

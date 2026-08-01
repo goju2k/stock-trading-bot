@@ -1,5 +1,6 @@
 import { TradingConfig } from '@prisma/client';
 
+import { logTradeEvent } from './log-trade-event';
 import { PositionWatcher } from './position-watcher';
 import { TradingRuntime } from './runtime';
 
@@ -30,20 +31,18 @@ export async function executeBuy({ sessionId, config, code, name, price, sourceS
   const res = await placeMarketOrder({ buy: true, code, qty: String(qty) });
 
   if (res.rt_cd !== '0') {
-    await prisma.tradeEvent.create({ data: { sessionId, type: 'buy_failed', code, message: `[${code}] 매수실패(${sourceStrategy}) ${res.msg1}` } });
+    await logTradeEvent({ sessionId, type: 'buy_failed', code, message: `매수실패(${sourceStrategy}) ${res.msg1}` });
     return;
   }
 
   const order = await prisma.order.create({ data: { sessionId, code, name, buyPrice: price, qty, kisOrderNo: res.output.ODNO, sourceStrategy } });
 
-  await prisma.tradeEvent.create({
-    data: {
-      sessionId,
-      type: 'buy_executed',
-      code,
-      message: `[${code}] 매수완료(${sourceStrategy}) ${qty}주`,
-      payload: { qty, price, sourceStrategy },
-    },
+  await logTradeEvent({
+    sessionId,
+    type: 'buy_executed',
+    code,
+    message: `매수완료(${sourceStrategy}) ${qty}주 @ ${price}원`,
+    payload: { qty, price, sourceStrategy },
   });
 
   const watcher = await PositionWatcher.start(order.id, code, config.highPercentage, config.lowPercentage, (w) => TradingRuntime.remove(w.code));

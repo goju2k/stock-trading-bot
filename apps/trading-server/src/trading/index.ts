@@ -2,6 +2,7 @@ export * from './balance-poller';
 export * from './execute-buy';
 export * from './foreign-institution-cache';
 export * from './gap-scanner';
+export * from './log-trade-event';
 export * from './position-watcher';
 export * from './runtime';
 export * from './scanner';
