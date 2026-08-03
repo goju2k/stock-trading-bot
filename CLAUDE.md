@@ -108,18 +108,19 @@ npm run build-control                # = nx build trading-control
 # Lint (per-project; also runs via nx affected)
 npx eslint --fix .                 # = npm run fix
 nx lint <project>
-nx affected -t lint
+nx affected -t lint --base=main    # see affected.defaultBase gotcha in the Tests notes below
 
 # Tests
-nx test trading                    # services/trading — Vitest
+nx test trading                    # services/trading — Jest
 nx test <shared-lib-name>          # shared libs (kis, api-hook, util-hook, global, design-system-v1, date, localstorage) — Jest
 nx test stock-trading-bot          # apps/stock-trading-bot — Vitest
 nx test <project> --testFile=<pattern>   # single test file (Vitest projects)
-nx affected -t test                # run tests for everything touched vs defaultBase (master)
+nx affected -t test --base=main    # run tests for everything touched vs main
 ```
 
 Notes:
-- `services/trading` and both React apps (`stock-trading-bot`, `trading-control`) use **Vitest** (`@nx/vite:test`); every `shared/*` library uses **Jest** (`@nx/jest:jest`) — check `project.json`'s `test` target before assuming which runner applies. `trading-server` and `trading-control` have no tests yet.
+- Both React apps (`stock-trading-bot`, `trading-control`) use **Vitest** (`@nx/vite:test`); `services/trading` and every `shared/*` library use **Jest** (`@nx/jest:jest`) — check `project.json`'s `test` target before assuming which runner applies. `trading-server` and `trading-control` have test targets wired up (Jest and Vitest respectively) but no test files exist yet in either.
+- `nx.json`'s `affected.defaultBase` is stale (`"master"`, a branch that doesn't exist in this repo — the real default branch is `main`), so plain `nx affected ...` fails with a git revision error; always pass `--base=main` (or `--base=origin/main`) explicitly.
 - Nx caches `build`/`lint`/test targets; if output looks stale, add `--skip-nx-cache`.
 - `.env.local` (git-ignored, shared by both Vite apps and `trading-server`'s `dotenv.config()`) holds all secrets/config; **`.env.example` at the repo root is the checked-in, secret-free spec** — every var name, what it's for, its expected format, and where to obtain it (KIS appkey/secret/CANO come from the KIS developer portal — real and paper are separate applications with separate keys). New machine setup: `cp .env.example .env.local` then fill in real values. Never commit real values or print them.
 - `JENKINS_API_TOKEN` also lives in `.env.local` (paired with the `goju2k` Jenkins user for Basic Auth) but isn't in `.env.example` — it's only used to script Jenkins job/credential setup from this machine (see Deployment below), no app code reads it.
