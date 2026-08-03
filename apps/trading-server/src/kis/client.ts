@@ -2,16 +2,39 @@ import axios, { AxiosInstance } from 'axios';
 
 import { KisEnvName, getKisEnvConfig } from './env';
 import { scheduleKisRequest } from './request-queue';
+import { KisResponseBase } from './types';
 import { getStoredToken, saveToken } from './token-store';
 
 // 유효하지 않은/기간만료 token 응답 코드 (browser-side axios-instance.ts와 동일)
 const REFRESH_ERROR_CODES = [ 'EGW00121', 'EGW00123' ];
 
-// 초당 거래건수 초과 (KIS 공식 에러코드) - request-queue.ts로 페이싱을 해도 계정 공유/순간
-// 버스트 등으로 여전히 뚫릴 수 있어서 마지막 방어선으로 재시도 처리한다.
-const RATE_LIMIT_ERROR_CODE = 'EGW00201';
+// 초당 거래건수 초과 (KIS 공식 에러코드, 확인된 것만 - 더 있을 수 있음) - request-queue.ts로
+// 페이싱을 해도 계정 공유/순간 버스트 등으로 여전히 뚫릴 수 있어서 마지막 방어선으로 재시도한다.
+// 2026-08-03 사고로 EGW00215("원장에서 허용 가능한 초당 거래건수를 초과하였습니다")도 여기
+// 추가됨 - EGW00201만 막아뒀었는데 실제로 발생한 건 이 코드였다.
+const RATE_LIMIT_ERROR_CODES = [ 'EGW00201', 'EGW00215' ];
 const RATE_LIMIT_MAX_RETRIES = 3;
 const RATE_LIMIT_RETRY_DELAY_MS = 500;
+
+export class KisApiError extends Error {
+
+  constructor(readonly msgCd: string, message: string) {
+    super(message);
+  }
+
+}
+
+// KIS는 레이트리밋을 포함한 대부분의 업무 에러를 HTTP 200 + rt_cd:'1' body로 돌려준다
+// (HTTP 레벨 에러가 아니다). 이 경우 axios는 "성공"으로 처리하므로 response interceptor의
+// 에러(reject) 핸들러는 절대 안 탄다 - 응답 바디를 직접 읽는 호출부(inquireBalance 등)가
+// rt_cd를 확인 안 하고 output만 읽으면, 실패를 "빈 결과"로 오인하게 된다
+// (2026-08-03 사고: 레이트리밋으로 잔고가 빈 배열처럼 보여서 보유종목 전체가 "매도됨"으로 오판됨).
+// 조회 계열 함수는 응답을 쓰기 전에 이 함수로 반드시 검증할 것.
+export function assertKisSuccess(data: KisResponseBase) {
+  if (data.rt_cd !== '0') {
+    throw new KisApiError(data.msg_cd, data.msg1);
+  }
+}
 
 // env별로 따로 캐싱한다 (real 전용 호출이 있어서 - 개장일 조회는 항상 real로 나가지만
 // 거래 모드는 paper일 수 있음. 한 프로세스 안에서 두 env 클라이언트가 동시에 존재할 수 있다).
@@ -78,8 +101,24 @@ export async function getKisClient(envOverride?: KisEnvName): Promise<AxiosInsta
   // 모든 요청을 env별 request-queue를 통과시켜 최소 간격을 강제한다 (kis/request-queue.ts).
   instance.interceptors.request.use((config) => scheduleKisRequest(env, async () => config));
 
+  async function retryIfRateLimited(msgCd: string | undefined, config: Parameters<typeof instance.request>[0]) {
+    if (!msgCd || !RATE_LIMIT_ERROR_CODES.includes(msgCd)) {
+      return null;
+    }
+    const retryCount = ((config as { _kisRateLimitRetryCount?: number; })._kisRateLimitRetryCount ?? 0) + 1;
+    if (retryCount > RATE_LIMIT_MAX_RETRIES) {
+      return null;
+    }
+    console.warn(`[kis:${env}] rate limited (${msgCd}), retry ${retryCount}/${RATE_LIMIT_MAX_RETRIES}`);
+    (config as { _kisRateLimitRetryCount?: number; })._kisRateLimitRetryCount = retryCount;
+    await new Promise((resolve) => { setTimeout(resolve, RATE_LIMIT_RETRY_DELAY_MS * retryCount); });
+    return instance.request(config);
+  }
+
   instance.interceptors.response.use(
-    (res) => res,
+    // KIS는 레이트리밋을 포함한 대부분의 에러를 HTTP 200 + rt_cd:'1' body로 돌려주기 때문에
+    // "성공" 분기에서도 반드시 확인해야 한다 (client.ts 상단 assertKisSuccess 주석 참고).
+    async (res) => (await retryIfRateLimited(res.data?.msg_cd, res.config)) ?? res,
     async (error) => {
       const errCd = error?.response?.data?.msg_cd;
 
@@ -89,16 +128,10 @@ export async function getKisClient(envOverride?: KisEnvName): Promise<AxiosInsta
         return Promise.reject(error);
       }
 
-      // request-queue로 페이싱해도 계정 공유/순간 버스트 등으로 여전히 초당 제한에 걸릴 수 있다 -
-      // 마지막 방어선으로 짧게 대기 후 몇 번 재시도한다 (그래도 실패하면 호출부가 알 수 있게 던짐).
-      if (error?.response && errCd === RATE_LIMIT_ERROR_CODE) {
-        const retryCount = (error.config?._kisRateLimitRetryCount ?? 0) + 1;
-        if (retryCount <= RATE_LIMIT_MAX_RETRIES) {
-          console.warn(`[kis:${env}] rate limited (${RATE_LIMIT_ERROR_CODE}), retry ${retryCount}/${RATE_LIMIT_MAX_RETRIES}`);
-          error.config._kisRateLimitRetryCount = retryCount;
-          await new Promise((resolve) => { setTimeout(resolve, RATE_LIMIT_RETRY_DELAY_MS * retryCount); });
-          return instance.request(error.config);
-        }
+      // 드물게 레이트리밋이 진짜 HTTP 레벨 에러(429 등)로 오는 경우에 대한 방어선.
+      const retried = error?.response && await retryIfRateLimited(errCd, error.config);
+      if (retried) {
+        return retried;
       }
 
       return Promise.reject(error);

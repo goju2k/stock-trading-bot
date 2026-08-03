@@ -1,4 +1,4 @@
-import { getKisClient } from './client';
+import { assertKisSuccess, getKisClient } from './client';
 import { COMMON_TR_ID } from './tr-id';
 import { BusinessDayItem, FluctuationItem, ForeignInstitutionItem, KisResponse, ViStatusItem, VolumeRankItem } from './types';
 
@@ -31,6 +31,7 @@ export async function fetchVolumeRank(filter: VolumeRankFilter) {
       headers: { tr_id: COMMON_TR_ID.volumeRank },
     },
   );
+  assertKisSuccess(res.data);
   return res.data.output || [];
 }
 
@@ -53,6 +54,7 @@ export async function fetchViStatus(baseDate: string) {
       headers: { tr_id: COMMON_TR_ID.viStatus },
     },
   );
+  assertKisSuccess(res.data);
   return res.data.output || [];
 }
 
@@ -74,6 +76,7 @@ export async function fetchForeignInstitutionNetBuyTop() {
       headers: { tr_id: COMMON_TR_ID.foreignInstitutionTotal },
     },
   );
+  assertKisSuccess(res.data);
   return res.data.output || [];
 }
 
@@ -103,6 +106,7 @@ export async function fetchFluctuationRank(filter: VolumeRankFilter) {
       headers: { tr_id: COMMON_TR_ID.fluctuation },
     },
   );
+  assertKisSuccess(res.data);
   return res.data.output || [];
 }
 
@@ -124,5 +128,8 @@ export async function fetchBusinessDay(baseDate: string) {
       headers: { tr_id: COMMON_TR_ID.businessDay },
     },
   );
+  // 실패를 조용히 undefined로 넘기면 openTodaySession()이 "휴장일"로 오판해서 그날 하루
+  // 자동매매가 통째로 안 열린다 - 반드시 검증해서 실패는 실패로 드러나게 한다.
+  assertKisSuccess(res.data);
   return res.data.output?.[0];
 }

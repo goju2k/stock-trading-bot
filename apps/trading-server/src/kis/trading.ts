@@ -1,4 +1,4 @@
-import { getKisClient } from './client';
+import { assertKisSuccess, getKisClient } from './client';
 import { getKisEnvConfig } from './env';
 import { TR_ID, balancePath } from './tr-id';
 import {
@@ -35,6 +35,10 @@ export async function inquireBalance() {
       headers: { tr_id: TR_ID.balance(env) },
     },
   );
+
+  // rt_cd 확인 없이 output1을 바로 읽으면 레이트리밋 등으로 실패한 응답이 "보유종목 0개"로
+  // 오인된다 - 2026-08-03 사고(보유 중인 종목들이 한 틱에 전부 "매도됨"으로 오판됨) 원인.
+  assertKisSuccess(res.data);
 
   return {
     holdings: res.data.output1 || [],
