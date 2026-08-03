@@ -23,7 +23,7 @@ async function tick(sessionId: number) {
 
   const items = await fetchVolumeRank({
     minPrice: config.minTargetAmt,
-    maxPrice: config.maxOrderAmt,
+    maxPrice: config.maxCandidatePrice,
     minVolume: config.minTradingCount,
   });
 

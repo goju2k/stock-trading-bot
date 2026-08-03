@@ -47,7 +47,7 @@ async function tick(sessionId: number): Promise<boolean> {
 
   const items = await fetchFluctuationRank({
     minPrice: config.minTargetAmt,
-    maxPrice: config.maxOrderAmt,
+    maxPrice: config.maxCandidatePrice,
     minVolume: config.minTradingCount,
   });
 

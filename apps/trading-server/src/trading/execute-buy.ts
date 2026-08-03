@@ -4,7 +4,7 @@ import { logTradeEvent } from './log-trade-event';
 import { PositionWatcher } from './position-watcher';
 import { TradingRuntime } from './runtime';
 
-import { placeMarketOrder } from '../kis';
+import { inquireBalance, placeMarketOrder } from '../kis';
 import { getPrisma } from '../lib/prisma';
 
 export interface ExecuteBuyInput {
@@ -22,7 +22,19 @@ export interface ExecuteBuyInput {
 // 체결/청산 처리는 전략 무관하게 동일하다.
 export async function executeBuy({ sessionId, config, code, name, price, sourceStrategy }: ExecuteBuyInput) {
   const prisma = getPrisma();
-  const qty = Math.floor(config.maxOrderAmt / price);
+
+  // 1건당 매수금액 = 가용현금(prvs_rcdl_excc_amt) * orderAmtPercent, maxOrderAmt는 절대 상한선으로만
+  // 작동 - 계좌 자본금이 얼마든(모의/실전) 같은 %로 대응되고, 수익이 나서 가용현금이 늘면 다음
+  // 매수 사이즈도 같이 커진다(2026-08-04, 정적 30,000원 고정값에서 전환).
+  const { summary } = await inquireBalance();
+  const availableCash = Number(summary?.prvs_rcdl_excc_amt);
+  if (!Number.isFinite(availableCash) || availableCash <= 0) {
+    console.error(`[execute-buy] invalid/missing available cash from balance summary - skip buy for ${code}`, summary);
+    return;
+  }
+
+  const orderAmt = Math.min(Math.floor(availableCash * (config.orderAmtPercent / 100)), config.maxOrderAmt);
+  const qty = Math.floor(orderAmt / price);
 
   if (qty <= 0) {
     return;

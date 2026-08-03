@@ -7,7 +7,7 @@ import { asyncHandler } from '../async-handler';
 export const configRouter = Router();
 
 const NUMBER_FIELDS = [
-  'refreshRateMs', 'highPercentage', 'lowPercentage', 'maxOrderAmt',
+  'refreshRateMs', 'highPercentage', 'lowPercentage', 'maxOrderAmt', 'orderAmtPercent', 'maxCandidatePrice',
   'minTargetAmt', 'minTradingCount', 'targetUpRating', 'targetIncreaseRate',
   'gapUpThresholdPercent', 'gapScanWindowMinutes',
 ] as const;

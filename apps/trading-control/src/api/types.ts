@@ -21,6 +21,8 @@ export interface TradingConfig {
   highPercentage: number;
   lowPercentage: number;
   maxOrderAmt: number;
+  orderAmtPercent: number;
+  maxCandidatePrice: number;
   minTargetAmt: number;
   minTradingCount: number;
   targetUpRating: number;

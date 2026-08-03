@@ -42,6 +42,11 @@ export interface InquireBalanceItem {
 export interface InquireBalanceSummary {
   rlzt_pfls?: string; // 실현손익
   rlzt_erng_rt?: string; // 실현손익율
+  // 가수도정산금액 - 현재 보유 포지션에 묶인 금액을 뺀 실사용 가능 현금. dnca_tot_amt(예수금총금액)는
+  // 보유종목과 무관하게 고정돼 있어 "지금 새로 매수 가능한 돈"으로 쓰기엔 부적합해서 이 필드를 쓴다
+  // (2026-08-03 모의계좌 실측으로 확인). 실전 계좌에서도 동일 필드가 채워지는지는 아직 미검증 -
+  // 실전 전환 전 반드시 재확인할 것 (kis/trading.ts의 다른 실전/모의 필드 차이 사례 참고).
+  prvs_rcdl_excc_amt?: string;
 }
 
 export interface OrderCacheResponseOutput {
