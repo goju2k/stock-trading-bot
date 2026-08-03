@@ -77,6 +77,8 @@ model TradingSession {
   openedAt      DateTime?
   liquidationAt DateTime?
   closedAt      DateTime?
+  // 장 시작 시점 가용현금(prvs_rcdl_excc_amt) 스냅샷 - 데일리 리포트의 가용률 계산 기준값.
+  startingCash  Int?
   // 당일 조회에서 이미 훑고 지나간 종목코드 (기존 PassedList/PassedListStore 대응).
   // 최초 등장한 매물만 잡기 위해 스캔 틱마다 조회된 코드를 전부 여기 누적한다.
   passedCodes   String[]  @default([])
