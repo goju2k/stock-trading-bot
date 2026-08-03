@@ -1,0 +1,174 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum KisEnv {
+  paper
+  real
+}
+
+enum PositionState {
+  checking
+  watching_for_sell
+  sell_waiting
+  done
+  error
+}
+
+enum TradeEventType {
+  session_start
+  session_end
+  buy_executed
+  buy_failed
+  sell_executed
+  sell_failed
+  forced_liquidation
+  error
+}
+
+// 하루 1행. 서버가 실제로 참조하는 매매 파라미터 (AdvanceOrder 화면에서 편집).
+model TradingConfig {
+  id                 Int      @id @default(1)
+  refreshRateMs      Int      @default(1000)
+  highPercentage     Float    @default(3)
+  lowPercentage      Float    @default(4)
+  // 1건당 매수금액 = 가용현금(KIS 잔고의 prvs_rcdl_excc_amt) * orderAmtPercent / 100, 이 값으로 상한만 건다
+  // (설정 실수로 몰빵하는 걸 막는 안전장치). 2026-08-04 이전엔 이 필드가 매수금액 자체였다.
+  maxOrderAmt        Int      @default(1000000)
+  // 가용현금 대비 1건당 매수 비율(%). 계좌 자본금이 얼마든(모의 1000만원/실전 100만원) 같은 값으로
+  // 대응되고, 수익이 나서 가용현금이 늘면 다음 매수 사이즈도 같이 커진다(복리 구조).
+  orderAmtPercent    Float    @default(10)
+  // 후보 종목 스캔(scanner.ts/gap-scanner.ts)의 가격 상한 필터. 예전엔 maxOrderAmt를 그대로 썼는데,
+  // orderAmt가 동적으로 바뀌게 되면서 스캔 필터와 완전히 분리했다.
+  maxCandidatePrice  Int      @default(30000)
+  minTargetAmt       Int      @default(4000)
+  minTradingCount    Int      @default(1000000)
+  targetUpRating     Float    @default(15)
+  targetIncreaseRate Float    @default(100)
+  kisEnv             KisEnv   @default(paper)
+  autoTradingEnabled Boolean  @default(true)
+  // 거래대금순위 후보를 외국인/기관 합산 순매수 상위 종목으로 한 번 더 거른다 (foreign-institution-cache.ts).
+  requireForeignInstitutionNetBuy Boolean @default(true)
+  // VI 해제 모멘텀 전략(vi-scanner.ts) on/off. 메인 전략과 별개로 끌 수 있는 스위치.
+  viStrategyEnabled  Boolean  @default(true)
+  // 시가 갭 상승 전략(gap-scanner.ts) on/off.
+  gapStrategyEnabled Boolean  @default(true)
+  // 전일종가 대비 시가 갭이 이 값(%) 이상이면 매수 후보.
+  gapUpThresholdPercent Float @default(3)
+  // 세션 시작(openedAt) 이후 이 분(分) 동안만 갭 스캐너가 동작 (장 시작 직후 갭에만 반응).
+  gapScanWindowMinutes  Int   @default(10)
+  updatedAt          DateTime @updatedAt
+
+  @@map("trading_config")
+}
+
+// 영업일 기준 하루 1행. cron이 09:00에 열고 15:25 청산 트리거, 16:00에 닫는다.
+model TradingSession {
+  id            Int       @id @default(autoincrement())
+  sessionDate   DateTime  @unique @db.Date
+  isBusinessDay Boolean
+  kisEnv        KisEnv
+  openedAt      DateTime?
+  liquidationAt DateTime?
+  closedAt      DateTime?
+  // 장 시작 시점 가용현금(prvs_rcdl_excc_amt) 스냅샷 - 데일리 리포트의 가용률 계산 기준값.
+  startingCash  Int?
+  // 당일 조회에서 이미 훑고 지나간 종목코드 (기존 PassedList/PassedListStore 대응).
+  // 최초 등장한 매물만 잡기 위해 스캔 틱마다 조회된 코드를 전부 여기 누적한다.
+  passedCodes   String[]  @default([])
+  // VI 스캐너가 이미 처리(매수 시도 또는 스킵)한 종목코드 - passedCodes와 같은 역할이지만
+  // VI 이벤트 단위로 별도 추적 (같은 종목이 volume-rank/VI 양쪽에 다 걸릴 수 있어서 풀을 분리했다).
+  viActedCodes  String[]  @default([])
+
+  orders Order[]
+  events TradeEvent[]
+
+  @@map("trading_sessions")
+}
+
+// 당일 매수 체결 1건 = 기존 OrderStocks/OrderListStore 항목에 대응.
+model Order {
+  id        Int      @id @default(autoincrement())
+  sessionId Int
+  code      String
+  name      String?
+  buyPrice  Decimal  @db.Decimal(12, 2)
+  qty       Int
+  kisOrderNo String?
+  // 어떤 진입 전략이 이 매수를 했는지 ('volume_rank' | 'vi_release'). 자유 문자열로 둬서
+  // 새 전략 추가할 때 enum 마이그레이션 없이 바로 확장 가능하게 함.
+  sourceStrategy String @default("volume_rank")
+  orderedAt DateTime @default(now())
+
+  session         TradingSession   @relation(fields: [sessionId], references: [id])
+  positionWatcher PositionWatcher?
+
+  @@index([sessionId, code])
+  @@map("orders")
+}
+
+// 매수 1건당 상태머신 1행 = 기존 TradingStrategy/SellByPercent 인스턴스에 대응.
+model PositionWatcher {
+  id             Int           @id @default(autoincrement())
+  orderId        Int           @unique
+  code           String
+  state          PositionState @default(checking)
+  // 매수 시점 설정값 스냅샷 (재시작 복구 시 도중에 설정이 바뀌어도 원래 기준으로 동작하도록 고정)
+  highPercentage Float
+  lowPercentage  Float
+  sellAmtHigh    Decimal?      @db.Decimal(12, 2)
+  sellAmtLow     Decimal?      @db.Decimal(12, 2)
+  // 트레일링 스탑용 고점 (watching_for_sell 진입 이후 관측된 최고가). 이게 갱신될 때마다
+  // sellAmtLow를 peakPrice 기준으로 다시 계산해서 손절선을 따라 올린다 (내려가지는 않음).
+  peakPrice      Decimal?      @db.Decimal(12, 2)
+  highOrLow      String?
+  stateMessage   String?
+  updatedAt      DateTime      @updatedAt
+
+  order Order @relation(fields: [orderId], references: [id])
+
+  @@map("position_watchers")
+}
+
+// 로그센터 대체 + FCM 푸시 트리거용 append-only 이벤트.
+model TradeEvent {
+  id        Int             @id @default(autoincrement())
+  sessionId Int?
+  type      TradeEventType
+  code      String?
+  message   String
+  payload   Json?
+  createdAt DateTime        @default(now())
+
+  session TradingSession? @relation(fields: [sessionId], references: [id])
+
+  @@index([sessionId])
+  @@map("trade_events")
+}
+
+// 안드로이드 웹뷰 앱이 등록한 FCM 디바이스 토큰.
+model DeviceToken {
+  id        Int      @id @default(autoincrement())
+  token     String   @unique
+  label     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("device_tokens")
+}
+
+// env(모의/실전)별 KIS access token 캐시. 재시작해도 재발급받지 않도록 영속화.
+model KisToken {
+  env         KisEnv   @id
+  accessToken String
+  expiresAt   DateTime
+  updatedAt   DateTime @updatedAt
+
+  @@map("kis_tokens")
+}
