@@ -16,6 +16,8 @@ import { apiRouter } from './http/router';
 import { getPrisma } from './lib/prisma';
 // eslint-disable-next-line import/first
 import { BalancePoller } from './trading';
+// eslint-disable-next-line import/first
+import { DISCORD_COLOR, sendDiscordMessage } from './notify/discord';
 
 // 2026-08-02 사고: BalancePoller 리스너(비동기) 안에서 던진 예외가 unhandled rejection으로
 // 새서 아무도 못 잡았고, 이 프로세스엔 별도 핸들러가 없어서(Node LTS 기본 동작 = 프로세스 종료)
@@ -54,20 +56,55 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
   res.status(500).json({ error: 'internal server error' });
 });
 
+// 2026-08-03 사고: 부팅 직후 DB 연결이 잠깐 끊긴 상태(Prisma 커넥션 풀 안정화 전 등)에서
+// resumeTodaySessionIfNeeded()를 그냥 불렀다가 실패했다. try/catch로 감싸서 죽지만 않게
+// 해봤자, 세션 복구는 여전히 조용히 스킵되고 아무도 모른다 - Jenkins는 컨테이너가 뜨기만
+// 하면 "배포 성공"으로 표시하므로 이게 유일하게 문제를 알 수 있는 지점이다. 그래서 재시도로
+// DB가 실제로 준비됐는지 먼저 확인하고, 그래도 안 되면 디스코드로 즉시 알린다.
+async function waitForDatabaseReady(maxAttempts: number, delayMs: number): Promise<boolean> {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      await getPrisma().$queryRaw`SELECT 1`;
+      return true;
+    } catch (error) {
+      console.error(`[main] DB connectivity check failed (attempt ${attempt}/${maxAttempts})`, error);
+      if (attempt < maxAttempts) {
+        await new Promise((resolve) => { setTimeout(resolve, delayMs); });
+      }
+    }
+  }
+  return false;
+}
+
 app.listen(port, host, async () => {
   console.log(`[ ready ] trading-server http://${host}:${port}`);
 
   // 잔고 폴러는 프로세스 수명 전체에 걸쳐 1개만 존재 (리스너 없으면 자체적으로 idle).
   BalancePoller.run();
 
-  // 2026-08-03 사고: 부팅 직후 DB 연결이 잠깐 끊겨서(Prisma 커넥션 풀 안정화 전 등) 이 호출이
-  // 예외를 던졌는데, 이게 unhandledRejection 핸들러로만 잡히고 바로 아래 startTradingCron()은
-  // 영원히 실행이 안 됐다 - 그 프로세스 수명 내내 09:00/15:25/16:00 cron 자체가 등록이 안 돼서
-  // 그날 강제청산/세션종료가 통째로 스킵됐다. resume 실패가 cron 등록까지 막지 않도록 분리.
-  try {
-    await resumeTodaySessionIfNeeded();
-  } catch (error) {
-    console.error('[main] resumeTodaySessionIfNeeded failed - cron will still be registered', error);
+  const dbReady = await waitForDatabaseReady(10, 3000); // 최대 30초 대기
+
+  if (!dbReady) {
+    console.error('[main] DB unreachable after retries - skipping session resume this boot');
+    await sendDiscordMessage({
+      title: '🔴 부팅 실패',
+      description: 'DB에 연결할 수 없어 세션 복구를 건너뛰었습니다. 서버 로그와 DB 상태를 확인해주세요.',
+      color: DISCORD_COLOR.red,
+    });
+  } else {
+    try {
+      await resumeTodaySessionIfNeeded();
+    } catch (error) {
+      console.error('[main] resumeTodaySessionIfNeeded failed', error);
+      await sendDiscordMessage({
+        title: '🔴 부팅 실패',
+        description: `세션 복구 중 오류가 발생했습니다: ${(error as Error).message}`,
+        color: DISCORD_COLOR.red,
+      });
+    }
   }
+
+  // resume 성공 여부와 무관하게 cron은 항상 등록한다 - 각 cron 작업(runSafely)이 자체적으로
+  // 안전하고, 다음 발동 시점엔 DB가 복구돼 있을 수도 있다.
   startTradingCron();
 });
