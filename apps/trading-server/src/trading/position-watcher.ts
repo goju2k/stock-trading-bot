@@ -218,7 +218,12 @@ export class PositionWatcher {
         return;
       }
 
-      await logTradeEvent({ sessionId: this.sessionId, type: 'sell_executed', code: this.code, name: this.name, message: `매도 체결 (${this.highOrLow})`, payload: { qty, price } });
+      // 실현손익 = (매도가 - 실제 매입평균가) * 수량. Order.buyPrice(매수 시점 참고가/VI발동가)가
+      // 아니라 KIS 잔고의 실시간 매입평균가(pchs_avg_pric)로 계산해야 정확하다 - 변동성 장에서는
+      // 시장가 체결가가 참고가와 다를 수 있다(watchForSell 상단 comment 참고).
+      const pnl = Math.round((price - Number(current.pchs_avg_pric)) * Number(qty));
+
+      await logTradeEvent({ sessionId: this.sessionId, type: 'sell_executed', code: this.code, name: this.name, message: `매도 체결 (${this.highOrLow}) ${qty}주 @ ${price}원 (손익 ${pnl}원)`, payload: { qty, price, pnl } });
 
       this.sellWaiting();
     };
