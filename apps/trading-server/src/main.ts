@@ -56,55 +56,47 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
   res.status(500).json({ error: 'internal server error' });
 });
 
-// 2026-08-03 사고: 부팅 직후 DB 연결이 잠깐 끊긴 상태(Prisma 커넥션 풀 안정화 전 등)에서
-// resumeTodaySessionIfNeeded()를 그냥 불렀다가 실패했다. try/catch로 감싸서 죽지만 않게
-// 해봤자, 세션 복구는 여전히 조용히 스킵되고 아무도 모른다 - Jenkins는 컨테이너가 뜨기만
-// 하면 "배포 성공"으로 표시하므로 이게 유일하게 문제를 알 수 있는 지점이다. 그래서 재시도로
-// DB가 실제로 준비됐는지 먼저 확인하고, 그래도 안 되면 디스코드로 즉시 알린다.
-async function waitForDatabaseReady(maxAttempts: number, delayMs: number): Promise<boolean> {
+// 컨테이너 기동 직후 DB 커넥션 풀이 아직 안 붙었을 수 있어 잠깐은 재시도해서 기회를 준다
+// (최대 30초) - 그래도 안 되면 진짜 장애로 보고 boot 시퀀스를 실패시킨다.
+async function waitForDatabaseReady(maxAttempts: number, delayMs: number): Promise<void> {
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
       await getPrisma().$queryRaw`SELECT 1`;
-      return true;
+      return;
     } catch (error) {
       console.error(`[main] DB connectivity check failed (attempt ${attempt}/${maxAttempts})`, error);
-      if (attempt < maxAttempts) {
-        await new Promise((resolve) => { setTimeout(resolve, delayMs); });
+      if (attempt === maxAttempts) {
+        throw error;
       }
+      await new Promise((resolve) => { setTimeout(resolve, delayMs); });
     }
   }
-  return false;
 }
 
 app.listen(port, host, async () => {
   console.log(`[ ready ] trading-server http://${host}:${port}`);
 
-  // 잔고 폴러는 프로세스 수명 전체에 걸쳐 1개만 존재 (리스너 없으면 자체적으로 idle).
-  BalancePoller.run();
+  // 2026-08-03 사고: 부팅 시퀀스(DB 연결 → 세션 복구 → cron 등록) 중간에 하나라도 실패하면
+  // (그날은 DB 순단) 서버가 반쪽짜리 상태로 계속 떠있을 이유가 없다 - 예전처럼 일부만 건너뛰고
+  // 계속 돌면 "cron은 등록됐는데 세션은 복구 안 된" 상태로 아무도 모르게 방치된다. 이 블록
+  // 전체를 하나로 묶어서, 뭐가 실패하든 디스코드로 알리고 프로세스를 내린다 - Jenkins는
+  // 컨테이너가 뜨기만 하면 배포 성공으로 표시하므로 이 지점 아니면 아무도 알 방법이 없다.
+  // 재기동 정책(--restart)이 없으므로 내려가면 그대로 멈춰있다 - 의도적인 선택: 절반만 도는
+  // 것보다 완전히 멈춰서 눈에 띄는 게 낫다.
+  try {
+    // 잔고 폴러는 프로세스 수명 전체에 걸쳐 1개만 존재 (리스너 없으면 자체적으로 idle).
+    BalancePoller.run();
 
-  const dbReady = await waitForDatabaseReady(10, 3000); // 최대 30초 대기
-
-  if (!dbReady) {
-    console.error('[main] DB unreachable after retries - skipping session resume this boot');
+    await waitForDatabaseReady(10, 3000);
+    await resumeTodaySessionIfNeeded();
+    startTradingCron();
+  } catch (error) {
+    console.error('[main] boot sequence failed - exiting', error);
     await sendDiscordMessage({
       title: '🔴 부팅 실패',
-      description: 'DB에 연결할 수 없어 세션 복구를 건너뛰었습니다. 서버 로그와 DB 상태를 확인해주세요.',
+      description: `서버 부팅 중 오류가 발생해 프로세스를 종료합니다.\n${(error as Error).message}`,
       color: DISCORD_COLOR.red,
     });
-  } else {
-    try {
-      await resumeTodaySessionIfNeeded();
-    } catch (error) {
-      console.error('[main] resumeTodaySessionIfNeeded failed', error);
-      await sendDiscordMessage({
-        title: '🔴 부팅 실패',
-        description: `세션 복구 중 오류가 발생했습니다: ${(error as Error).message}`,
-        color: DISCORD_COLOR.red,
-      });
-    }
+    process.exit(1);
   }
-
-  // resume 성공 여부와 무관하게 cron은 항상 등록한다 - 각 cron 작업(runSafely)이 자체적으로
-  // 안전하고, 다음 발동 시점엔 DB가 복구돼 있을 수도 있다.
-  startTradingCron();
 });
