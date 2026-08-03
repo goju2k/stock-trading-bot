@@ -28,7 +28,13 @@ export async function executeBuy({ sessionId, config, code, name, price, sourceS
     return;
   }
 
-  const res = await placeMarketOrder({ buy: true, code, qty: String(qty) });
+  let res;
+  try {
+    res = await placeMarketOrder({ buy: true, code, qty: String(qty) });
+  } catch (error) {
+    await logTradeEvent({ sessionId, type: 'buy_failed', code, message: `매수주문 예외(${sourceStrategy})\n${(error as Error).message}` });
+    return;
+  }
 
   if (res.rt_cd !== '0') {
     await logTradeEvent({ sessionId, type: 'buy_failed', code, message: `매수실패(${sourceStrategy}) ${res.msg1}` });

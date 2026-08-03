@@ -11,14 +11,19 @@ export interface LogTradeEventInput {
   payload?: Prisma.InputJsonValue | null;
 }
 
-// 매수/매도 체결과 세션 시작·종료만 디스코드로 알림. buy_failed/sell_failed/error는
-// 지금은 DB 기록만 하고 알림은 보내지 않는다 (요청 범위 밖 - 필요해지면 여기에 추가).
+// 매수/매도 체결, 세션 시작·종료, 그리고 매도/에러성 실패까지 디스코드로 알림.
+// 2026-08-02 사고(레이트리밋으로 매도 예외 발생 → sell_failed/error가 기록만 되고 알림이
+// 안 나가서 방치된 채로 몇 시간 동안 아무도 몰랐음) 이후로 sell_failed/error를 알림 대상에
+// 추가했다. buy_failed는 매매불가 종목 거부처럼 흔히 발생하는 정상 케이스가 섞여있어 아직
+// 알림 대상에서 제외 (필요해지면 여기에 추가).
 const EVENT_NOTIFICATION: Partial<Record<TradeEventType, { title: string; color: number; }>> = {
   session_start: { title: '🔔 장 시작', color: DISCORD_COLOR.cyan },
   session_end: { title: '🔔 장 종료', color: DISCORD_COLOR.yellow },
   buy_executed: { title: '🟢 매수 체결', color: DISCORD_COLOR.green },
   sell_executed: { title: '🔵 매도 체결', color: DISCORD_COLOR.blue },
   forced_liquidation: { title: '🔵 강제청산 매도', color: DISCORD_COLOR.blue },
+  sell_failed: { title: '🔴 매도 실패', color: DISCORD_COLOR.red },
+  error: { title: '🔴 에러', color: DISCORD_COLOR.red },
 };
 
 // TradeEvent DB 기록 + (알림 대상 타입이면) 디스코드 발송까지 처리하는 단일 통로.

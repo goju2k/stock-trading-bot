@@ -17,6 +17,18 @@ import { getPrisma } from './lib/prisma';
 // eslint-disable-next-line import/first
 import { BalancePoller } from './trading';
 
+// 2026-08-02 사고: BalancePoller 리스너(비동기) 안에서 던진 예외가 unhandled rejection으로
+// 새서 아무도 못 잡았고, 이 프로세스엔 별도 핸들러가 없어서(Node LTS 기본 동작 = 프로세스 종료)
+// 매매 로직 전체가 조용히 죽었다가 다시 살아나지 못한 것으로 추정된다. 개별 호출부(try/catch)를
+// 최대한 보강했지만, 놓친 경로가 또 있을 수 있으니 최후의 방어선으로 로그만 남기고 프로세스는
+// 살려둔다 - 트레이딩 서버가 죽는 것보다 에러 하나 놓치는 게 훨씬 낫다.
+process.on('unhandledRejection', (reason) => {
+  console.error('[process] unhandled rejection', reason);
+});
+process.on('uncaughtException', (error) => {
+  console.error('[process] uncaught exception', error);
+});
+
 const host = process.env.HOST ?? 'localhost';
 const port = process.env.PORT ? Number(process.env.PORT) : 3001;
 

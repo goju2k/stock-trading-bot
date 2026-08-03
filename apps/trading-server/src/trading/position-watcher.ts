@@ -106,7 +106,13 @@ export class PositionWatcher {
       return;
     }
 
-    const res = await placeMarketOrder({ buy: false, code: this.code, qty: current.hldg_qty });
+    let res;
+    try {
+      res = await placeMarketOrder({ buy: false, code: this.code, qty: current.hldg_qty });
+    } catch (error) {
+      await this.fail(`강제청산 매도 예외\n${(error as Error).message}`);
+      return;
+    }
     if (res.rt_cd !== '0') {
       await this.fail(`강제청산 매도 실패\n${res.msg1}`);
       return;
@@ -189,7 +195,17 @@ export class PositionWatcher {
       await this.persist({ highOrLow: this.highOrLow });
 
       const { hldg_qty: qty } = current;
-      const res = await placeMarketOrder({ buy: false, code: this.code, qty });
+
+      // placeMarketOrder가 예외를 던지면(레이트리밋 등 HTTP 레벨 에러) 이 리스너는 이미
+      // BalancePoller에서 제거된 뒤라 잡아주지 않으면 이 포지션은 영원히 방치된다 -
+      // 반드시 fail()로 상태를 남기고 (error 이벤트로) 알림까지 나가게 한다.
+      let res;
+      try {
+        res = await placeMarketOrder({ buy: false, code: this.code, qty });
+      } catch (error) {
+        await this.fail(`매도주문 예외\n${(error as Error).message}`);
+        return;
+      }
 
       if (res.rt_cd !== '0') {
         await this.fail(`매도주문 실패\n${res.msg1}`);

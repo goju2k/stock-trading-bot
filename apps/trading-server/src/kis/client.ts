@@ -1,10 +1,17 @@
 import axios, { AxiosInstance } from 'axios';
 
 import { KisEnvName, getKisEnvConfig } from './env';
+import { scheduleKisRequest } from './request-queue';
 import { getStoredToken, saveToken } from './token-store';
 
 // 유효하지 않은/기간만료 token 응답 코드 (browser-side axios-instance.ts와 동일)
 const REFRESH_ERROR_CODES = [ 'EGW00121', 'EGW00123' ];
+
+// 초당 거래건수 초과 (KIS 공식 에러코드) - request-queue.ts로 페이싱을 해도 계정 공유/순간
+// 버스트 등으로 여전히 뚫릴 수 있어서 마지막 방어선으로 재시도 처리한다.
+const RATE_LIMIT_ERROR_CODE = 'EGW00201';
+const RATE_LIMIT_MAX_RETRIES = 3;
+const RATE_LIMIT_RETRY_DELAY_MS = 500;
 
 // env별로 따로 캐싱한다 (real 전용 호출이 있어서 - 개장일 조회는 항상 real로 나가지만
 // 거래 모드는 paper일 수 있음. 한 프로세스 안에서 두 env 클라이언트가 동시에 존재할 수 있다).
@@ -68,14 +75,32 @@ export async function getKisClient(envOverride?: KisEnvName): Promise<AxiosInsta
     },
   });
 
+  // 모든 요청을 env별 request-queue를 통과시켜 최소 간격을 강제한다 (kis/request-queue.ts).
+  instance.interceptors.request.use((config) => scheduleKisRequest(env, async () => config));
+
   instance.interceptors.response.use(
     (res) => res,
     async (error) => {
       const errCd = error?.response?.data?.msg_cd;
+
       if (error?.response && REFRESH_ERROR_CODES.includes(errCd)) {
         await refreshKisToken(envOverride);
         error.response.data = { rt_cd: 'nosession' };
+        return Promise.reject(error);
       }
+
+      // request-queue로 페이싱해도 계정 공유/순간 버스트 등으로 여전히 초당 제한에 걸릴 수 있다 -
+      // 마지막 방어선으로 짧게 대기 후 몇 번 재시도한다 (그래도 실패하면 호출부가 알 수 있게 던짐).
+      if (error?.response && errCd === RATE_LIMIT_ERROR_CODE) {
+        const retryCount = (error.config?._kisRateLimitRetryCount ?? 0) + 1;
+        if (retryCount <= RATE_LIMIT_MAX_RETRIES) {
+          console.warn(`[kis:${env}] rate limited (${RATE_LIMIT_ERROR_CODE}), retry ${retryCount}/${RATE_LIMIT_MAX_RETRIES}`);
+          error.config._kisRateLimitRetryCount = retryCount;
+          await new Promise((resolve) => { setTimeout(resolve, RATE_LIMIT_RETRY_DELAY_MS * retryCount); });
+          return instance.request(error.config);
+        }
+      }
+
       return Promise.reject(error);
     },
   );
