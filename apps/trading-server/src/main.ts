@@ -60,6 +60,14 @@ app.listen(port, host, async () => {
   // 잔고 폴러는 프로세스 수명 전체에 걸쳐 1개만 존재 (리스너 없으면 자체적으로 idle).
   BalancePoller.run();
 
-  await resumeTodaySessionIfNeeded();
+  // 2026-08-03 사고: 부팅 직후 DB 연결이 잠깐 끊겨서(Prisma 커넥션 풀 안정화 전 등) 이 호출이
+  // 예외를 던졌는데, 이게 unhandledRejection 핸들러로만 잡히고 바로 아래 startTradingCron()은
+  // 영원히 실행이 안 됐다 - 그 프로세스 수명 내내 09:00/15:25/16:00 cron 자체가 등록이 안 돼서
+  // 그날 강제청산/세션종료가 통째로 스킵됐다. resume 실패가 cron 등록까지 막지 않도록 분리.
+  try {
+    await resumeTodaySessionIfNeeded();
+  } catch (error) {
+    console.error('[main] resumeTodaySessionIfNeeded failed - cron will still be registered', error);
+  }
   startTradingCron();
 });
