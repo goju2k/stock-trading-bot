@@ -32,12 +32,12 @@ export async function executeBuy({ sessionId, config, code, name, price, sourceS
   try {
     res = await placeMarketOrder({ buy: true, code, qty: String(qty) });
   } catch (error) {
-    await logTradeEvent({ sessionId, type: 'buy_failed', code, message: `매수주문 예외(${sourceStrategy})\n${(error as Error).message}` });
+    await logTradeEvent({ sessionId, type: 'buy_failed', code, name, message: `매수 실패(${sourceStrategy})\n${(error as Error).message}` });
     return;
   }
 
   if (res.rt_cd !== '0') {
-    await logTradeEvent({ sessionId, type: 'buy_failed', code, message: `매수실패(${sourceStrategy}) ${res.msg1}` });
+    await logTradeEvent({ sessionId, type: 'buy_failed', code, name, message: `매수 실패(${sourceStrategy}) ${res.msg1}` });
     return;
   }
 
@@ -47,10 +47,11 @@ export async function executeBuy({ sessionId, config, code, name, price, sourceS
     sessionId,
     type: 'buy_executed',
     code,
-    message: `매수완료(${sourceStrategy}) ${qty}주 @ ${price}원`,
+    name,
+    message: `매수 체결(${sourceStrategy}) ${qty}주 @ ${price}원`,
     payload: { qty, price, sourceStrategy },
   });
 
-  const watcher = await PositionWatcher.start(order.id, code, config.highPercentage, config.lowPercentage, (w) => TradingRuntime.remove(w.code));
+  const watcher = await PositionWatcher.start(sessionId, order.id, code, name, config.highPercentage, config.lowPercentage, (w) => TradingRuntime.remove(w.code));
   TradingRuntime.add(watcher);
 }

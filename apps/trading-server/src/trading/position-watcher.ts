@@ -30,9 +30,13 @@ export class PositionWatcher {
 
   readonly id: number;
 
+  readonly sessionId: number;
+
   readonly orderId: number;
 
   readonly code: string;
+
+  readonly name: string | null;
 
   readonly highPercentage: number;
 
@@ -55,10 +59,12 @@ export class PositionWatcher {
 
   private activeListener?: BalanceListener;
 
-  private constructor(id: number, orderId: number, code: string, highPercentage: number, lowPercentage: number, onDone?: OnDone) {
+  private constructor(id: number, sessionId: number, orderId: number, code: string, name: string | null, highPercentage: number, lowPercentage: number, onDone?: OnDone) {
     this.id = id;
+    this.sessionId = sessionId;
     this.orderId = orderId;
     this.code = code;
+    this.name = name;
     this.highPercentage = highPercentage;
     this.lowPercentage = lowPercentage;
     this.onDone = onDone;
@@ -66,16 +72,16 @@ export class PositionWatcher {
 
   // 신규 매수 직후 호출 (scanner.ts). 매수 시점의 %를 스냅샷으로 저장해서 도중에
   // 설정이 바뀌거나 서버가 재시작돼도 이 포지션은 원래 기준 그대로 동작한다.
-  static async start(orderId: number, code: string, highPercentage: number, lowPercentage: number, onDone?: OnDone) {
+  static async start(sessionId: number, orderId: number, code: string, name: string | null | undefined, highPercentage: number, lowPercentage: number, onDone?: OnDone) {
     const row = await getPrisma().positionWatcher.create({ data: { orderId, code, highPercentage, lowPercentage, state: 'checking' } });
-    const watcher = new PositionWatcher(row.id, orderId, code, highPercentage, lowPercentage, onDone);
+    const watcher = new PositionWatcher(row.id, sessionId, orderId, code, name ?? null, highPercentage, lowPercentage, onDone);
     watcher.checking();
     return watcher;
   }
 
   // 서버 재시작 후 미종료 watcher 복구 (runtime.ts)
-  static resume(row: ResumeRow, onDone?: OnDone) {
-    const watcher = new PositionWatcher(row.id, row.orderId, row.code, row.highPercentage, row.lowPercentage, onDone);
+  static resume(row: ResumeRow, sessionId: number, name: string | null, onDone?: OnDone) {
+    const watcher = new PositionWatcher(row.id, sessionId, row.orderId, row.code, name, row.highPercentage, row.lowPercentage, onDone);
     watcher.sellAmtHigh = row.sellAmtHigh ? Number(row.sellAmtHigh) : 0;
     watcher.sellAmtLow = row.sellAmtLow ? Number(row.sellAmtLow) : 0;
     watcher.peakPrice = row.peakPrice ? Number(row.peakPrice) : 0;
@@ -118,7 +124,7 @@ export class PositionWatcher {
       return;
     }
 
-    await logTradeEvent({ type: 'forced_liquidation', code: this.code, message: reason, payload: { qty: current.hldg_qty } });
+    await logTradeEvent({ sessionId: this.sessionId, type: 'forced_liquidation', code: this.code, name: this.name, message: reason, payload: { qty: current.hldg_qty } });
 
     this.sellWaiting();
   }
@@ -212,7 +218,7 @@ export class PositionWatcher {
         return;
       }
 
-      await logTradeEvent({ type: 'sell_executed', code: this.code, message: `매도주문 완료 (${this.highOrLow})`, payload: { qty, price } });
+      await logTradeEvent({ sessionId: this.sessionId, type: 'sell_executed', code: this.code, name: this.name, message: `매도 체결 (${this.highOrLow})`, payload: { qty, price } });
 
       this.sellWaiting();
     };
@@ -246,7 +252,7 @@ export class PositionWatcher {
     this.state = 'error';
     this.stateMessage = message;
     await this.persist({ state: 'error', stateMessage: message });
-    await logTradeEvent({ type: 'error', code: this.code, message });
+    await logTradeEvent({ sessionId: this.sessionId, type: 'error', code: this.code, name: this.name, message });
     this.onDone?.(this);
   }
 

@@ -7,6 +7,9 @@ export interface LogTradeEventInput {
   sessionId?: number | null;
   type: TradeEventType;
   code?: string | null;
+  // 디스코드 알림에 종목명을 같이 보여주기 위한 값 - TradeEvent 테이블엔 name 컬럼이 없어서
+  // (Order.name이 원본) DB에는 안 쓰고 알림 포맷팅에만 쓴다.
+  name?: string | null;
   message: string;
   payload?: Prisma.InputJsonValue | null;
 }
@@ -30,13 +33,15 @@ const EVENT_NOTIFICATION: Partial<Record<TradeEventType, { title: string; color:
 // 매매 로직 곳곳에서 직접 prisma.tradeEvent.create()를 호출하면 알림을 빠뜨리기 쉬워서
 // 이 함수 하나로 몰았다.
 export async function logTradeEvent(input: LogTradeEventInput) {
-  const event = await getPrisma().tradeEvent.create({ data: input });
+  const { name, ...eventData } = input;
+  const event = await getPrisma().tradeEvent.create({ data: eventData });
 
   const notification = EVENT_NOTIFICATION[input.type];
   if (notification) {
+    const label = input.code ? (name ? `${name}(${input.code})` : input.code) : null;
     await sendDiscordMessage({
       title: notification.title,
-      description: input.code ? `[${input.code}] ${input.message}` : input.message,
+      description: label ? `[${label}] ${input.message}` : input.message,
       color: notification.color,
     });
   }

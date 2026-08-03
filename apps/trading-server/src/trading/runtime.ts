@@ -36,10 +36,11 @@ export async function resumeOpenWatchers(sessionId: number) {
       state: { notIn: [ 'done', 'error' ] },
       order: { sessionId },
     },
+    include: { order: { select: { name: true } } },
   });
 
   rows.forEach((row) => {
-    const watcher = PositionWatcher.resume(row, (w) => TradingRuntime.remove(w.code));
+    const watcher = PositionWatcher.resume(row, sessionId, row.order.name, (w) => TradingRuntime.remove(w.code));
     TradingRuntime.add(watcher);
   });
 
