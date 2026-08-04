@@ -41,6 +41,14 @@ export function nowHHMMSS() {
   return `${hour}${minute}${second}`;
 }
 
+// 로그에 찍을 KST 타임스탬프 (lib/logger.ts). "YYYY-MM-DD HH:MM:SS" - 프로세스 시스템 TZ와
+// 무관하게 항상 KST로 찍혀야 배포 서버 로그를 보면서 장 운영시간(09:00/15:15/15:30)과 바로
+// 대조할 수 있다.
+export function nowKstTimestamp() {
+  const { year, month, day, hour, minute, second } = kstParts(new Date());
+  return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
+}
+
 export function hhmmssDiffSeconds(a: string, b: string) {
   const toSeconds = (value: string) => (
     Number(value.slice(0, 2)) * 3600 + Number(value.slice(2, 4)) * 60 + Number(value.slice(4, 6))

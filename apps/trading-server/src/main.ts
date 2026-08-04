@@ -13,11 +13,17 @@ import { resumeTodaySessionIfNeeded } from './cron/session';
 // eslint-disable-next-line import/first
 import { apiRouter } from './http/router';
 // eslint-disable-next-line import/first
+import { installTimestampedConsole } from './lib/logger';
+// eslint-disable-next-line import/first
 import { getPrisma } from './lib/prisma';
 // eslint-disable-next-line import/first
 import { BalancePoller } from './trading';
 // eslint-disable-next-line import/first
 import { DISCORD_COLOR, sendDiscordMessage } from './notify/discord';
+
+// 이후 모든 console.log/warn/error에 KST 타임스탬프를 붙인다 - 이 파일에서 실제로 로그가
+// 찍히기 시작하는 지점(아래 process.on 핸들러들)보다 앞이면 되므로 임포트 블록 바로 뒤에서 설치.
+installTimestampedConsole();
 
 // 2026-08-02 사고: BalancePoller 리스너(비동기) 안에서 던진 예외가 unhandled rejection으로
 // 새서 아무도 못 잡았고, 이 프로세스엔 별도 핸들러가 없어서(Node LTS 기본 동작 = 프로세스 종료)
