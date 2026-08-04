@@ -11,6 +11,10 @@ export interface KisResponse<OUTPUT> extends KisResponseBase {
 export interface KisResponseMulti<OUTPUT1 = void, OUTPUT2 = void> extends KisResponseBase {
   output1: OUTPUT1;
   output2: OUTPUT2;
+  // 연속조회(페이지네이션) 키 - 응답 헤더 tr_cont가 M/F(다음 페이지 있음)일 때 다음 요청의
+  // CTX_AREA_FK100/NK100으로 그대로 넘겨야 다음 페이지를 받을 수 있다 (inquire-balance 전용).
+  ctx_area_fk100?: string;
+  ctx_area_nk100?: string;
 }
 
 export interface VolumeRankItem {
