@@ -51,10 +51,11 @@ async function tick(sessionId: number): Promise<boolean> {
     minVolume: config.minTradingCount,
   });
 
+  const passed = new Set(session.gapPassedCodes);
   const orderedToday = await getOrderedCodesToday(sessionId);
 
   const target = items
-    .filter((item) => !orderedToday.has(item.stck_shrn_iscd))
+    .filter((item) => !orderedToday.has(item.stck_shrn_iscd) && !passed.has(item.stck_shrn_iscd))
     .map((item) => ({ item, gap: estimateGapPercent(item) }))
     .find(({ gap }) => gap !== null && gap >= config.gapUpThresholdPercent);
 
@@ -68,6 +69,12 @@ async function tick(sessionId: number): Promise<boolean> {
       sourceStrategy: 'gap_up',
     });
   }
+
+  // scanner.ts(거래대금순위)와 동일하게, 매수 성공 여부와 무관하게 이번 틱에 조회된 종목은
+  // 전부 훑고 지나간 걸로 기록한다 - 매수 스킵(최소금액 미달/매매불가 등)된 종목을 스캔 창이
+  // 끝날 때까지 5초마다 계속 재시도하지 않기 위함.
+  const gapPassedCodes = Array.from(new Set([ ...passed, ...items.map((item) => item.stck_shrn_iscd) ]));
+  await prisma.tradingSession.update({ where: { id: sessionId }, data: { gapPassedCodes } });
 
   return true;
 }

@@ -91,6 +91,10 @@ model TradingSession {
   // VI 스캐너가 이미 처리(매수 시도 또는 스킵)한 종목코드 - passedCodes와 같은 역할이지만
   // VI 이벤트 단위로 별도 추적 (같은 종목이 volume-rank/VI 양쪽에 다 걸릴 수 있어서 풀을 분리했다).
   viActedCodes  String[]  @default([])
+  // 갭 스캐너가 이미 훑고 지나간 종목코드 - passedCodes/viActedCodes와 같은 역할, 풀만 분리
+  // (2026-08-04 이전엔 이 풀이 없어서 매수 스킵된 종목을 스캔 창이 끝날 때까지 5초마다 계속
+  // 재시도했다 - 다른 두 전략과 동일하게 "한 번 훑은 종목은 그날 다시 안 본다"로 통일).
+  gapPassedCodes String[] @default([])
 
   orders Order[]
   events TradeEvent[]
