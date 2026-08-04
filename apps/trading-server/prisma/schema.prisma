@@ -38,12 +38,18 @@ model TradingConfig {
   refreshRateMs      Int      @default(1000)
   highPercentage     Float    @default(3)
   lowPercentage      Float    @default(4)
-  // 1건당 매수금액 = 가용현금(KIS 잔고의 prvs_rcdl_excc_amt) * orderAmtPercent / 100, 이 값으로 상한만 건다
-  // (설정 실수로 몰빵하는 걸 막는 안전장치). 2026-08-04 이전엔 이 필드가 매수금액 자체였다.
+  // 1건당 매수금액의 절대 상한선 (설정 실수로 몰빵하는 걸 막는 안전장치일 뿐, 평소엔
+  // orderAmtPercent/startingCash 계산값이 이보다 작아서 이 값에 안 걸린다).
   maxOrderAmt        Int      @default(1000000)
-  // 가용현금 대비 1건당 매수 비율(%). 계좌 자본금이 얼마든(모의 1000만원/실전 100만원) 같은 값으로
-  // 대응되고, 수익이 나서 가용현금이 늘면 다음 매수 사이즈도 같이 커진다(복리 구조).
+  // 장 시작 시점 가용현금(TradingSession.startingCash) 대비 1건당 최대 매수 비율(%). 장중
+  // "현재" 가용현금 기준으로 계산하면 포지션이 쌓일수록 가용현금이 줄어서 주문금액도 같이
+  // 쪼그라들다가 아주 작은 단위로 계속 사들이며 보유 포지션 수만 과도하게 늘어나는 문제가
+  // 있었다(2026-08-04) - 그래서 장 시작 스냅샷 기준 고정값으로 전환, 장중엔 안 바뀐다.
   orderAmtPercent    Float    @default(10)
+  // 장 시작 시점 가용현금 대비 1건당 최소 매수 기준(%). "현재" 가용현금이 이 아래로 내려가면
+  // 매수 후보가 있어도 더 이상 신규 매수를 하지 않는다 - 별도의 "최대 보유 포지션 수" 설정 없이
+  // 이 조건 하나로 신규 진입을 자연스럽게 막는다.
+  minOrderAmtPercent Float    @default(5)
   // 후보 종목 스캔(scanner.ts/gap-scanner.ts)의 가격 상한 필터. 예전엔 maxOrderAmt를 그대로 썼는데,
   // orderAmt가 동적으로 바뀌게 되면서 스캔 필터와 완전히 분리했다.
   maxCandidatePrice  Int      @default(30000)
