@@ -1,5 +1,5 @@
 import { getTradingConfig } from '../config/trading-config';
-import { fetchBusinessDay, inquireBalance } from '../kis';
+import { fetchBusinessDay, inquireBalance, placeMarketOrder } from '../kis';
 import { getKisEnvConfig } from '../kis/env';
 import { todayDateOnly, todayYYYYMMDD } from '../lib/date';
 import { getPrisma } from '../lib/prisma';
@@ -32,15 +32,85 @@ function stopAllScanners() {
   stopForeignInstitutionCache();
 }
 
-// 데일리 리포트의 가용률(투입금액/가용현금) 계산 기준값으로 쓸 장 시작 시점 가용현금 스냅샷.
-// 실패해도(일시적 KIS 오류 등) 세션 오픈 자체를 막을 정도는 아니라서 null로 두고 넘어간다.
-async function fetchStartingCash(): Promise<number | undefined> {
+// 09:00 세션 오픈 직전, 계좌에 아직 남아있는 잔여 포지션(전일 이전 세션에서 정상적으로
+// 정리되지 못한 건 - done 오탐/누락으로 실제로는 계속 보유 중이던 경우 등)을 전부 시장가로
+// 정리한다. 이 계좌는 프로그램매매 전용이라 잔고에 남아있는 건 전부 봇이 산 것으로 간주해도
+// 안전하다 - DB 매칭 여부와 무관하게 잔고 전체를 대상으로 한다(계좌를 겸용으로 쓰게 되면 이
+// 가정부터 재검토할 것). 대응하는 DB 건이 이미 done으로 잘못 기록돼 있어도(예: 2026-08-04
+// inquire-balance 페이지네이션 누락 버그로 오탐 done 처리된 건들) 여기서 실제 잔고 기준으로
+// 전부 덮어써서 현행화한다 - 정리 결과는 원래 Order의 sessionId로 기록해서, 이미 발송된 그날
+// 리포트는 못 고쳐도 이후 월간 집계 등에서 정확한 데이터를 보게 한다.
+// 반환값은 오늘의 startingCash로 쓸 가용현금 - 방금 넣은 매도주문은 아직 체결 반영 전이라
+// inquireBalance()가 돌려주는 가용현금에 포함 안 되므로, 전량 체결된다는 전제로 각 정리 대상의
+// 평가금액(현재가*수량)을 더해서 추정한다.
+async function liquidateStalePositions(): Promise<number | undefined> {
+  const prisma = getPrisma();
+
   try {
-    const { summary } = await inquireBalance();
-    const cash = Number(summary?.prvs_rcdl_excc_amt);
-    return Number.isFinite(cash) ? cash : undefined;
+    const { holdings, summary } = await inquireBalance();
+    const availableCash = Number(summary?.prvs_rcdl_excc_amt) || 0;
+    const liveHoldings = holdings.filter((h) => Number(h.hldg_qty) > 0);
+    const liveCodes = new Set(liveHoldings.map((h) => h.pdno));
+
+    let estimatedProceeds = 0;
+
+    // 1) 잔고에 실제로 남아있는 건 전부 매도.
+    await Promise.all(liveHoldings.map(async (holding) => {
+      const price = Number(holding.prpr);
+      estimatedProceeds += price * Number(holding.hldg_qty);
+
+      let res;
+      try {
+        res = await placeMarketOrder({ buy: false, code: holding.pdno, qty: holding.hldg_qty });
+      } catch (error) {
+        console.error(`[cron] stale liquidation sell failed for ${holding.pdno}`, error);
+        return;
+      }
+      if (res.rt_cd !== '0') {
+        console.error(`[cron] stale liquidation sell rejected for ${holding.pdno}: ${res.msg1}`);
+        return;
+      }
+
+      // 상태 필터 없이 최신 건 하나를 찾는다 - 이미 done/error로(잘못) 기록돼 있어도 이번
+      // 정리 결과로 덮어써야 하므로 notIn 필터를 걸지 않는다.
+      const watcher = await prisma.positionWatcher.findFirst({
+        where: { code: holding.pdno },
+        include: { order: true },
+        orderBy: { id: 'desc' },
+      });
+
+      const pnl = Math.round((price - Number(holding.pchs_avg_pric)) * Number(holding.hldg_qty));
+
+      if (watcher) {
+        await prisma.positionWatcher.update({
+          where: { id: watcher.id },
+          data: { state: 'done', stateMessage: '(정리) 익일 잔여 포지션 정리' },
+        });
+      }
+
+      await logTradeEvent({
+        sessionId: watcher?.order.sessionId ?? null,
+        type: 'forced_liquidation',
+        code: holding.pdno,
+        name: watcher?.order.name ?? holding.prdt_name,
+        message: '익일 잔여 포지션 정리',
+        payload: { qty: holding.hldg_qty, price, pnl },
+      });
+    }));
+
+    // 2) DB엔 미종료로 남아있는데 실제 잔고엔 없는(이미 다른 경로로 사라진) 건 - 매도 없이
+    //    done으로 현행화만 한다.
+    const staleWatchers = await prisma.positionWatcher.findMany({ where: { state: { notIn: [ 'done', 'error' ] } } });
+    await Promise.all(
+      staleWatchers.filter((w) => !liveCodes.has(w.code)).map((w) => prisma.positionWatcher.update({
+        where: { id: w.id },
+        data: { state: 'done', stateMessage: '(정리) 실보유 없음 확인' },
+      })),
+    );
+
+    return availableCash + estimatedProceeds;
   } catch (error) {
-    console.error('[cron] fetchStartingCash failed - startingCash will be null today', error);
+    console.error('[cron] liquidateStalePositions failed - startingCash will be null today', error);
     return undefined;
   }
 }
@@ -52,7 +122,7 @@ export async function openTodaySession() {
   const isBusinessDay = businessDay?.opnd_yn === 'Y';
   const { env } = getKisEnvConfig();
   const prisma = getPrisma();
-  const startingCash = isBusinessDay ? await fetchStartingCash() : undefined;
+  const startingCash = isBusinessDay ? await liquidateStalePositions() : undefined;
 
   const session = await prisma.tradingSession.upsert({
     where: { sessionDate },
