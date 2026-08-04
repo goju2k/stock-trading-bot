@@ -53,8 +53,11 @@ async function liquidateStalePositions(): Promise<number | undefined> {
     const liveCodes = new Set(liveHoldings.map((h) => h.pdno));
 
     let estimatedProceeds = 0;
+    let liquidatedCount = 0;
 
-    // 1) 잔고에 실제로 남아있는 건 전부 매도.
+    // 1) 잔고에 실제로 남아있는 건 전부 매도. 개별 종목마다 디스코드 알림을 보내면 정리 대상이
+    //    많은 날(예: 2026-08-04, 134건) 채널이 도배되므로 notify:false로 DB에만 기록하고,
+    //    끝나고 요약 메시지 하나로 묶어 보낸다.
     await Promise.all(liveHoldings.map(async (holding) => {
       const price = Number(holding.prpr);
       estimatedProceeds += price * Number(holding.hldg_qty);
@@ -88,6 +91,7 @@ async function liquidateStalePositions(): Promise<number | undefined> {
         });
       }
 
+      liquidatedCount += 1;
       await logTradeEvent({
         sessionId: watcher?.order.sessionId ?? null,
         type: 'forced_liquidation',
@@ -95,18 +99,27 @@ async function liquidateStalePositions(): Promise<number | undefined> {
         name: watcher?.order.name ?? holding.prdt_name,
         message: '익일 잔여 포지션 정리',
         payload: { qty: holding.hldg_qty, price, pnl },
+        notify: false,
       });
     }));
 
     // 2) DB엔 미종료로 남아있는데 실제 잔고엔 없는(이미 다른 경로로 사라진) 건 - 매도 없이
     //    done으로 현행화만 한다.
     const staleWatchers = await prisma.positionWatcher.findMany({ where: { state: { notIn: [ 'done', 'error' ] } } });
-    await Promise.all(
-      staleWatchers.filter((w) => !liveCodes.has(w.code)).map((w) => prisma.positionWatcher.update({
-        where: { id: w.id },
-        data: { state: 'done', stateMessage: '(정리) 실보유 없음 확인' },
-      })),
-    );
+    const reconciledCodes = staleWatchers.filter((w) => !liveCodes.has(w.code));
+    await Promise.all(reconciledCodes.map((w) => prisma.positionWatcher.update({
+      where: { id: w.id },
+      data: { state: 'done', stateMessage: '(정리) 실보유 없음 확인' },
+    })));
+
+    if (liquidatedCount > 0 || reconciledCodes.length > 0) {
+      const reconciledNote = reconciledCodes.length > 0 ? ` (실보유 없음 확인 ${reconciledCodes.length}건 별도)` : '';
+      await logTradeEvent({
+        sessionId: null,
+        type: 'forced_liquidation',
+        message: `전일 잔여 포지션 정리 ${liquidatedCount}건 완료${reconciledNote}`,
+      });
+    }
 
     return availableCash + estimatedProceeds;
   } catch (error) {
@@ -160,7 +173,7 @@ export async function openTodaySession() {
   return session;
 }
 
-// 15:25 평일 트리거 (정규장 마감 15:30 직전). 신규 스캔 중단 + 잔여 포지션 전량 강제청산.
+// 15:15 평일 트리거 (정규장 마감 15:30 15분 전). 신규 스캔 중단 + 잔여 포지션 전량 강제청산.
 export async function liquidateTodaySession() {
   const sessionDate = todayDateOnly();
   const prisma = getPrisma();
@@ -183,14 +196,14 @@ export async function liquidateTodaySession() {
   await logTradeEvent({
     sessionId: session.id,
     type: 'forced_liquidation',
-    message: `15:25 장마감 강제청산 트리거 (대상 ${activeWatchers.length}건)`,
+    message: `15:15 장마감 강제청산 트리거 (대상 ${activeWatchers.length}건)`,
   });
 
   console.log(`[cron] liquidating ${activeWatchers.length} open position(s)`);
 
   await Promise.all(activeWatchers.map(async (watcher) => {
     try {
-      await watcher.forceSell('15:25 장마감 강제청산');
+      await watcher.forceSell('15:15 장마감 강제청산');
     } catch (error) {
       console.error(`[cron] forceSell failed for ${watcher.code}`, error);
     }
@@ -271,7 +284,7 @@ async function buildSessionSummary(sessionId: number) {
     + (strategyLines ? `\n${strategyLines}` : '');
 }
 
-// 16:00 평일 트리거. 세션 공식 종료 기록 + 마감내역 요약. (BalancePoller/미종료 watcher는 계속 둔다)
+// 15:30 평일 트리거 (정규장 마감과 동시). 세션 공식 종료 기록 + 마감내역 요약. (BalancePoller/미종료 watcher는 계속 둔다)
 export async function closeTodaySession() {
   const sessionDate = todayDateOnly();
   const prisma = getPrisma();

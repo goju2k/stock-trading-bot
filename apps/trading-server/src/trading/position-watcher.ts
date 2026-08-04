@@ -99,7 +99,7 @@ export class PositionWatcher {
     return watcher;
   }
 
-  // 15:25 강제청산 트리거 등 외부에서 호출
+  // 15:15 강제청산 트리거 등 외부에서 호출
   async forceSell(reason: string) {
     if (this.activeListener) {
       BalancePoller.removeListener(this.activeListener);

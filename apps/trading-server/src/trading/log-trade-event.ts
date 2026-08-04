@@ -12,6 +12,10 @@ export interface LogTradeEventInput {
   name?: string | null;
   message: string;
   payload?: Prisma.InputJsonValue | null;
+  // 기본 true - false면 알림 대상 타입이어도 디스코드로는 안 보내고 DB에만 기록한다. 같은
+  // 종류의 이벤트가 한꺼번에 몰릴 때(예: 장 시작시 잔여 포지션 일괄 정리) 개별 알림 대신
+  // 호출부에서 요약 메시지 하나로 묶어 보내기 위함.
+  notify?: boolean;
 }
 
 // 매수/매도 체결, 세션 시작·종료, 그리고 매도/에러성 실패까지 디스코드로 알림.
@@ -33,11 +37,11 @@ const EVENT_NOTIFICATION: Partial<Record<TradeEventType, { title: string; color:
 // 매매 로직 곳곳에서 직접 prisma.tradeEvent.create()를 호출하면 알림을 빠뜨리기 쉬워서
 // 이 함수 하나로 몰았다.
 export async function logTradeEvent(input: LogTradeEventInput) {
-  const { name, ...eventData } = input;
+  const { name, notify = true, ...eventData } = input;
   const event = await getPrisma().tradeEvent.create({ data: eventData });
 
   const notification = EVENT_NOTIFICATION[input.type];
-  if (notification) {
+  if (notification && notify) {
     const label = input.code ? (name ? `${name}(${input.code})` : input.code) : null;
     await sendDiscordMessage({
       title: notification.title,
