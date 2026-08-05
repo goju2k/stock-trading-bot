@@ -28,7 +28,6 @@ export interface TradingConfig {
   minTradingCount: number;
   targetUpRating: number;
   targetIncreaseRate: number;
-  kisEnv: KisEnvName;
   autoTradingEnabled: boolean;
   requireForeignInstitutionNetBuy: boolean;
   viStrategyEnabled: boolean;

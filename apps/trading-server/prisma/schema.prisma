@@ -57,7 +57,6 @@ model TradingConfig {
   minTradingCount    Int      @default(1000000)
   targetUpRating     Float    @default(15)
   targetIncreaseRate Float    @default(100)
-  kisEnv             KisEnv   @default(paper)
   autoTradingEnabled Boolean  @default(true)
   // 거래대금순위 후보를 외국인/기관 합산 순매수 상위 종목으로 한 번 더 거른다 (foreign-institution-cache.ts).
   requireForeignInstitutionNetBuy Boolean @default(true)
