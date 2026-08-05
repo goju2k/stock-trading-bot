@@ -11,7 +11,8 @@ import { getPrisma } from '../lib/prisma';
 // 기준)를 거치므로 이 값 자체가 실제 체크 주기를 보장하진 않는다 - 그래도 틱을 더 자주 걸어야
 // 그만큼 빨리 큐에 들어가서 조금이라도 먼저 처리될 기회가 생긴다.
 const SCAN_INTERVAL_MS = 3000;
-const RECENT_RELEASE_WINDOW_SEC = 180; // VI 해제 후 3분 이내만 모멘텀 신호로 인정
+// 180 -> 90 (2026-08-05, 전략 실험): 해제 후 너무 늦게 반응한 뒤늦은 진입을 더 타이트하게 거른다.
+const RECENT_RELEASE_WINDOW_SEC = 90;
 
 let timer: NodeJS.Timeout | undefined;
 
