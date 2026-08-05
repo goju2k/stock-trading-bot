@@ -7,7 +7,10 @@ import { ViStatusItem } from '../kis/types';
 import { hhmmssDiffSeconds, nowHHMMSS, todayYYYYMMDD } from '../lib/date';
 import { getPrisma } from '../lib/prisma';
 
-const SCAN_INTERVAL_MS = 5000; // VI 이벤트는 거래량순위만큼 빈번하지 않아 1초까지는 필요없음
+// 5000 -> 3000 (2026-08-05): 모든 요청이 kis/request-queue.ts의 공유 큐(초당 1건, 모의투자
+// 기준)를 거치므로 이 값 자체가 실제 체크 주기를 보장하진 않는다 - 그래도 틱을 더 자주 걸어야
+// 그만큼 빨리 큐에 들어가서 조금이라도 먼저 처리될 기회가 생긴다.
+const SCAN_INTERVAL_MS = 3000;
 const RECENT_RELEASE_WINDOW_SEC = 180; // VI 해제 후 3분 이내만 모멘텀 신호로 인정
 
 let timer: NodeJS.Timeout | undefined;
