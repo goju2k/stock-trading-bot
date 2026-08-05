@@ -140,6 +140,21 @@ export class PositionWatcher {
     this.sellWaiting();
   }
 
+  // 세션 마감(closeTodaySession) 시 외부에서 호출 - 그날 안에 못 끝난 포지션을 더 이상 지켜보지
+  // 않는다. done()/fail()과 달리 state는 안 건드린다 - 왜 못 끝났는지가 그대로 남아있어야 다음날
+  // 09:00 liquidateStalePositions()가 실제 잔고 기준으로 정리할 수 있다. BalancePoller 리스너만
+  // 떼서, 장마감 이후에도 이 포지션 하나 때문에 BalancePoller가 계속 살아서 초당 1회씩 KIS를
+  // 호출하는 걸 막는다(2026-08-05: sell_waiting에 갇힌 watcher 때문에 장마감 몇 시간 뒤까지도
+  // 계속 폴링되다가 KIS 야간 점검 창구에 대고 실패 호출을 반복하던 문제).
+  stopWatching(message: string) {
+    if (this.activeListener) {
+      BalancePoller.removeListener(this.activeListener);
+      this.activeListener = undefined;
+    }
+    this.stateMessage = message;
+    return this.persist({ stateMessage: message });
+  }
+
   toString() {
     const target = this.sellAmtHigh > 0 ? `high:${this.sellAmtHigh} / low:${this.sellAmtLow}` : '';
     return `종목:[${this.code}] 처리상태:[${this.state}] ${this.stateMessage} ${target}`;

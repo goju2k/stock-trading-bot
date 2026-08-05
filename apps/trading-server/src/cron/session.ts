@@ -294,7 +294,10 @@ async function buildSessionSummary(sessionId: number) {
     + (strategyLines ? `\n${strategyLines}` : '');
 }
 
-// 15:30 평일 트리거 (정규장 마감과 동시). 세션 공식 종료 기록 + 마감내역 요약. (BalancePoller/미종료 watcher는 계속 둔다)
+// 15:30 평일 트리거 (정규장 마감과 동시). 세션 공식 종료 기록 + 마감내역 요약. 그날 안에 못 끝난
+// 포지션은 더 지켜보지 않고 익일 09:00 liquidateStalePositions()의 정리 대상으로 넘긴다
+// (2026-08-05: 세션 마감 후에도 sell_waiting 등에 걸린 watcher가 BalancePoller를 계속 붙잡고
+// 있어서 밤새 초당 1회씩 KIS를 호출하던 문제 - 이전엔 "미종료 watcher는 계속 둔다"였음).
 export async function closeTodaySession() {
   const sessionDate = todayDateOnly();
   const prisma = getPrisma();
@@ -311,6 +314,15 @@ export async function closeTodaySession() {
     where: { id: session.id },
     data: { closedAt: new Date() },
   });
+
+  const stillActive = TradingRuntime.active();
+  await Promise.all(stillActive.map(async (watcher) => {
+    await watcher.stopWatching('장마감 - 익일 09:00 정리 대상');
+    TradingRuntime.remove(watcher.code);
+  }));
+  if (stillActive.length > 0) {
+    console.log(`[cron] stopped watching ${stillActive.length} unresolved position(s) at session close`);
+  }
 
   const summary = await buildSessionSummary(session.id);
 
