@@ -16,6 +16,10 @@ const RATE_LIMIT_ERROR_CODES = [ 'EGW00201', 'EGW00215' ];
 const RATE_LIMIT_MAX_RETRIES = 3;
 const RATE_LIMIT_RETRY_DELAY_MS = 500;
 
+// HTTP 응답 자체를 못 받은 순수 네트워크 에러(소켓 리셋 등) - 2026-08-05 확인. KIS가 부하 상황에서
+// rt_cd 에러 대신 연결을 그냥 끊어버리는 것으로 보여 레이트리밋과 같은 원인일 가능성이 크다.
+const NETWORK_RETRY_CODES = [ 'ECONNRESET', 'ECONNABORTED', 'ETIMEDOUT', 'EPIPE' ];
+
 export class KisApiError extends Error {
 
   constructor(readonly msgCd: string, message: string) {
@@ -101,18 +105,24 @@ export async function getKisClient(envOverride?: KisEnvName): Promise<AxiosInsta
   // 모든 요청을 env별 request-queue를 통과시켜 최소 간격을 강제한다 (kis/request-queue.ts).
   instance.interceptors.request.use((config) => scheduleKisRequest(env, async () => config));
 
+  // 재시도 카운트를 요청 config 위에 얹어서(요청당 최대 RATE_LIMIT_MAX_RETRIES회, 레이트리밋과
+  // 네트워크 에러가 같은 예산을 공유) 재발송한다 - 원인만 다를 뿐 대응(짧은 backoff 후 재요청)은 동일.
+  async function retryRequest(config: Parameters<typeof instance.request>[0], label: string) {
+    const retryCount = ((config as { _kisRetryCount?: number; })._kisRetryCount ?? 0) + 1;
+    if (retryCount > RATE_LIMIT_MAX_RETRIES) {
+      return null;
+    }
+    console.warn(`[kis:${env}] ${label}, retry ${retryCount}/${RATE_LIMIT_MAX_RETRIES}`);
+    (config as { _kisRetryCount?: number; })._kisRetryCount = retryCount;
+    await new Promise((resolve) => { setTimeout(resolve, RATE_LIMIT_RETRY_DELAY_MS * retryCount); });
+    return instance.request(config);
+  }
+
   async function retryIfRateLimited(msgCd: string | undefined, config: Parameters<typeof instance.request>[0]) {
     if (!msgCd || !RATE_LIMIT_ERROR_CODES.includes(msgCd)) {
       return null;
     }
-    const retryCount = ((config as { _kisRateLimitRetryCount?: number; })._kisRateLimitRetryCount ?? 0) + 1;
-    if (retryCount > RATE_LIMIT_MAX_RETRIES) {
-      return null;
-    }
-    console.warn(`[kis:${env}] rate limited (${msgCd}), retry ${retryCount}/${RATE_LIMIT_MAX_RETRIES}`);
-    (config as { _kisRateLimitRetryCount?: number; })._kisRateLimitRetryCount = retryCount;
-    await new Promise((resolve) => { setTimeout(resolve, RATE_LIMIT_RETRY_DELAY_MS * retryCount); });
-    return instance.request(config);
+    return retryRequest(config, `rate limited (${msgCd})`);
   }
 
   instance.interceptors.response.use(
@@ -132,6 +142,15 @@ export async function getKisClient(envOverride?: KisEnvName): Promise<AxiosInsta
       const retried = error?.response && await retryIfRateLimited(errCd, error.config);
       if (retried) {
         return retried;
+      }
+
+      // HTTP 응답 자체를 못 받은 경우(소켓 리셋 등, error.response가 없음) - 위 두 분기 다
+      // error.response를 전제로 하기 때문에 이전엔 여기서 재시도 없이 바로 실패 처리됐다.
+      if (!error?.response && NETWORK_RETRY_CODES.includes(error?.code)) {
+        const networkRetried = await retryRequest(error.config, `network error (${error.code})`);
+        if (networkRetried) {
+          return networkRetried;
+        }
       }
 
       return Promise.reject(error);
