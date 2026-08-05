@@ -124,7 +124,15 @@ export class PositionWatcher {
       return;
     }
 
-    await logTradeEvent({ sessionId: this.sessionId, type: 'forced_liquidation', code: this.code, name: this.name, message: reason, payload: { qty: current.hldg_qty } });
+    // watchForSell()의 정상 매도 경로와 동일하게 실제 매입평균가 기준으로 실현손익을 계산해서
+    // 바로 영속화한다 - 예전엔 이걸 안 남겨서(qty만 기록) 강제청산 손익이 리포트에서 통째로
+    // 빠지는 버그가 있었다(2026-08-05 발견).
+    const price = Number(current.prpr);
+    const sellQty = Number(current.hldg_qty);
+    const pnl = Math.round((price - Number(current.pchs_avg_pric)) * sellQty);
+    await this.persist({ sellPrice: price, sellQty, pnl });
+
+    await logTradeEvent({ sessionId: this.sessionId, type: 'forced_liquidation', code: this.code, name: this.name, message: reason, payload: { qty: sellQty, price, pnl } });
 
     this.sellWaiting();
   }
@@ -134,7 +142,7 @@ export class PositionWatcher {
     return `종목:[${this.code}] 처리상태:[${this.state}] ${this.stateMessage} ${target}`;
   }
 
-  private persist(fields: Partial<{ state: PositionState; sellAmtHigh: number; sellAmtLow: number; peakPrice: number; highOrLow: string; stateMessage: string; }>) {
+  private persist(fields: Partial<{ state: PositionState; sellAmtHigh: number; sellAmtLow: number; peakPrice: number; highOrLow: string; stateMessage: string; sellPrice: number; sellQty: number; pnl: number; closedAt: Date; }>) {
     return getPrisma().positionWatcher.update({ where: { id: this.id }, data: fields }).catch((error) => {
       console.error(`[position-watcher:${this.code}] persist failed`, error);
     });
@@ -222,6 +230,7 @@ export class PositionWatcher {
       // 아니라 KIS 잔고의 실시간 매입평균가(pchs_avg_pric)로 계산해야 정확하다 - 변동성 장에서는
       // 시장가 체결가가 참고가와 다를 수 있다(watchForSell 상단 comment 참고).
       const pnl = Math.round((price - Number(current.pchs_avg_pric)) * Number(qty));
+      await this.persist({ sellPrice: price, sellQty: Number(qty), pnl });
 
       await logTradeEvent({ sessionId: this.sessionId, type: 'sell_executed', code: this.code, name: this.name, message: `매도 체결 (${this.highOrLow}) ${qty}주 @ ${price}원 (손익 ${pnl}원)`, payload: { qty, price, pnl } });
 
@@ -249,14 +258,14 @@ export class PositionWatcher {
   private async done(message: string) {
     this.state = 'done';
     this.stateMessage = message;
-    await this.persist({ state: 'done', stateMessage: message });
+    await this.persist({ state: 'done', stateMessage: message, closedAt: new Date() });
     this.onDone?.(this);
   }
 
   private async fail(message: string) {
     this.state = 'error';
     this.stateMessage = message;
-    await this.persist({ state: 'error', stateMessage: message });
+    await this.persist({ state: 'error', stateMessage: message, closedAt: new Date() });
     await logTradeEvent({ sessionId: this.sessionId, type: 'error', code: this.code, name: this.name, message });
     this.onDone?.(this);
   }

@@ -139,6 +139,17 @@ model PositionWatcher {
   peakPrice      Decimal?      @db.Decimal(12, 2)
   highOrLow      String?
   stateMessage   String?
+  // 매도 결과 (실제 체결가/수량/실현손익) - done으로 확정되기 전, 매도주문을 넣는 시점에 바로
+  // 채운다(TradeEvent.payload에만 있던 걸 여기로 옮김 - 2026-08-05: forceSell()이 payload에
+  // price/pnl을 안 남겨서 강제청산 손익이 리포트에서 통째로 빠지는 버그를 겪은 뒤, TradeEvent
+  // JSON을 코드명으로 재매칭하는 취약한 구조 대신 이 컬럼들을 손익 집계의 근거로 삼기로 함).
+  // 수동매도 감지(외부에서 판 경우)는 우리가 주문을 안 넣었으니 원천적으로 값이 없다.
+  sellPrice      Decimal?      @db.Decimal(12, 2)
+  sellQty        Int?
+  pnl            Int?
+  // 이 포지션 추적이 끝난 시각 (done/error 공통) - 매도가 확정된 시각이 아니라 상태머신이
+  // 종료된 시각이라는 점에 주의(sell_waiting 확정까지는 시차가 있을 수 있다).
+  closedAt       DateTime?
   updatedAt      DateTime      @updatedAt
 
   order Order @relation(fields: [orderId], references: [id])

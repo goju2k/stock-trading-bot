@@ -87,7 +87,7 @@ async function liquidateStalePositions(): Promise<number | undefined> {
       if (watcher) {
         await prisma.positionWatcher.update({
           where: { id: watcher.id },
-          data: { state: 'done', stateMessage: '(정리) 익일 잔여 포지션 정리' },
+          data: { state: 'done', stateMessage: '(정리) 익일 잔여 포지션 정리', sellPrice: price, sellQty: Number(holding.hldg_qty), pnl, closedAt: new Date() },
         });
       }
 
@@ -109,7 +109,7 @@ async function liquidateStalePositions(): Promise<number | undefined> {
     const reconciledCodes = staleWatchers.filter((w) => !liveCodes.has(w.code));
     await Promise.all(reconciledCodes.map((w) => prisma.positionWatcher.update({
       where: { id: w.id },
-      data: { state: 'done', stateMessage: '(정리) 실보유 없음 확인' },
+      data: { state: 'done', stateMessage: '(정리) 실보유 없음 확인', closedAt: new Date() },
     })));
 
     if (liquidatedCount > 0 || reconciledCodes.length > 0) {
@@ -219,7 +219,10 @@ interface StrategyStat {
 }
 
 // 오늘 세션의 매수/매도/실현손익 + 가용률 + 전략별 승률/손익비 요약 ("마감내역, 데일리 리포트") -
-// session_end 알림 본문에 쓴다.
+// session_end 알림 본문에 쓴다. 2026-08-05 이전엔 TradeEvent.payload(JSON)를 종목코드로 다시
+// 매칭해서 손익을 복원했는데, forceSell()이 payload에 price/pnl을 안 남기는 경로가 있어서
+// 강제청산 손익이 리포트에서 통째로 빠지는 버그가 있었다 - 이제 PositionWatcher.pnl(매도가
+// 확정되는 모든 경로에서 직접 채워짐)을 그대로 읽는다.
 async function buildSessionSummary(sessionId: number) {
   const prisma = getPrisma();
   const session = await prisma.tradingSession.findUnique({ where: { id: sessionId } });
@@ -232,26 +235,21 @@ async function buildSessionSummary(sessionId: number) {
   const doneCount = orders.filter((o) => o.positionWatcher?.state === 'done').length;
   const openCount = orders.filter((o) => o.positionWatcher && ![ 'done', 'error' ].includes(o.positionWatcher.state)).length;
 
-  const sellEvents = await prisma.tradeEvent.findMany({ where: { sessionId, type: { in: [ 'sell_executed', 'forced_liquidation' ] }, code: { not: null } } });
-
   let realizedPnl = 0;
   const bySrc = new Map<string, StrategyStat>();
   orders.forEach((o) => {
     bySrc.set(o.sourceStrategy, { buys: (bySrc.get(o.sourceStrategy)?.buys ?? 0) + 1, wins: 0, losses: 0, winReturnPctSum: 0, lossReturnPctSum: 0 });
   });
 
-  sellEvents.forEach((event) => {
-    const order = orders.find((o) => o.code === event.code);
-    const payload = event.payload as { price?: number; qty?: number; pnl?: number; } | null;
-    if (!order || !payload?.price) return;
+  orders.forEach((o) => {
+    const pnl = o.positionWatcher?.pnl;
+    if (pnl === null || pnl === undefined) return;
 
-    const qty = payload.qty ?? order.qty;
-    const pnl = payload.pnl ?? (payload.price - Number(order.buyPrice)) * qty;
     realizedPnl += pnl;
 
-    const investedAmt = Number(order.buyPrice) * qty;
+    const investedAmt = Number(o.buyPrice) * o.qty;
     const returnPct = investedAmt > 0 ? (pnl / investedAmt) * 100 : 0;
-    const stat = bySrc.get(order.sourceStrategy);
+    const stat = bySrc.get(o.sourceStrategy);
     if (!stat) return;
     if (pnl > 0) {
       stat.wins += 1;
