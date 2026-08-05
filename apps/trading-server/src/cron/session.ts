@@ -193,21 +193,33 @@ export async function liquidateTodaySession() {
 
   const activeWatchers = TradingRuntime.active();
 
+  // 개별 종목마다 notify:true로 두면 청산 대상 수만큼 디스코드 알림이 각각 나간다(2026-08-05
+  // 확인) - 트리거/개별 결과는 DB에만 기록(notify:false)하고, 끝난 뒤 요약 메시지 하나만 보낸다.
   await logTradeEvent({
     sessionId: session.id,
     type: 'forced_liquidation',
     message: `15:15 장마감 강제청산 트리거 (대상 ${activeWatchers.length}건)`,
+    notify: false,
   });
 
   console.log(`[cron] liquidating ${activeWatchers.length} open position(s)`);
 
+  let failedCount = 0;
   await Promise.all(activeWatchers.map(async (watcher) => {
     try {
-      await watcher.forceSell('15:15 장마감 강제청산');
+      await watcher.forceSell('15:15 장마감 강제청산', { notify: false });
     } catch (error) {
+      failedCount += 1;
       console.error(`[cron] forceSell failed for ${watcher.code}`, error);
     }
   }));
+
+  const failedNote = failedCount > 0 ? ` (예외 발생 ${failedCount}건 - 로그 확인 필요)` : '';
+  await logTradeEvent({
+    sessionId: session.id,
+    type: 'forced_liquidation',
+    message: `15:15 장마감 강제청산 완료 (대상 ${activeWatchers.length}건)${failedNote}`,
+  });
 }
 
 interface StrategyStat {

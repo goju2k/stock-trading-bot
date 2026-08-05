@@ -99,8 +99,11 @@ export class PositionWatcher {
     return watcher;
   }
 
-  // 15:15 강제청산 트리거 등 외부에서 호출
-  async forceSell(reason: string) {
+  // 15:15 강제청산 트리거, 관리자 강제매도(API) 등 외부에서 호출. notify는 기본 true(개별
+  // 알림) - 관리자가 종목 하나를 수동으로 누른 경우엔 그 결과가 바로 와야 하지만, 15:15
+  // 일괄청산처럼 N건을 한 번에 처리할 땐 호출부에서 false로 넘기고 끝난 뒤 요약 메시지
+  // 하나로 묶는다(2026-08-05: 이걸 안 해서 청산 대상 수만큼 개별 알림이 갔던 문제).
+  async forceSell(reason: string, options?: { notify?: boolean; }) {
     if (this.activeListener) {
       BalancePoller.removeListener(this.activeListener);
     }
@@ -132,7 +135,7 @@ export class PositionWatcher {
     const pnl = Math.round((price - Number(current.pchs_avg_pric)) * sellQty);
     await this.persist({ sellPrice: price, sellQty, pnl });
 
-    await logTradeEvent({ sessionId: this.sessionId, type: 'forced_liquidation', code: this.code, name: this.name, message: reason, payload: { qty: sellQty, price, pnl } });
+    await logTradeEvent({ sessionId: this.sessionId, type: 'forced_liquidation', code: this.code, name: this.name, message: reason, payload: { qty: sellQty, price, pnl }, notify: options?.notify ?? true });
 
     this.sellWaiting();
   }
