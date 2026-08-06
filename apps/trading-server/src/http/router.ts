@@ -6,6 +6,7 @@ import { devicesRouter } from './routes/devices';
 import { eventsRouter } from './routes/events';
 import { ordersRouter } from './routes/orders';
 import { positionsRouter } from './routes/positions';
+import { sessionRouter } from './routes/session';
 import { statusRouter } from './routes/status';
 
 export const apiRouter = Router();
@@ -17,3 +18,4 @@ apiRouter.use('/positions', positionsRouter);
 apiRouter.use('/orders', ordersRouter);
 apiRouter.use('/events', eventsRouter);
 apiRouter.use('/devices', devicesRouter);
+apiRouter.use('/session', sessionRouter);
