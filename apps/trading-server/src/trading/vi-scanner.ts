@@ -62,10 +62,13 @@ async function tick(sessionId: number) {
   await prisma.tradingSession.update({ where: { id: sessionId }, data: { viActedCodes } });
 }
 
+let stopped = false;
+
 export function startViScanner(sessionId: number) {
   if (timer) {
     return;
   }
+  stopped = false;
 
   const loop = async () => {
     try {
@@ -73,7 +76,12 @@ export function startViScanner(sessionId: number) {
     } catch (error) {
       console.error('[vi-scanner] tick failed', error);
     }
-    timer = setTimeout(loop, SCAN_INTERVAL_MS);
+    // stopViScanner()가 이 tick()이 진행되는 동안 호출됐으면 여기서 다시 스케줄을 걸면 안 된다
+    // (2026-08-06: 이 체크가 없어서 stopViScanner() 호출 직후에도 스캐너가 계속 돌던 버그 -
+    // gap-scanner.ts는 애초에 이 패턴으로 돼 있었음).
+    if (!stopped) {
+      timer = setTimeout(loop, SCAN_INTERVAL_MS);
+    }
   };
 
   loop();
@@ -81,6 +89,7 @@ export function startViScanner(sessionId: number) {
 }
 
 export function stopViScanner() {
+  stopped = true;
   if (timer) {
     clearTimeout(timer);
     timer = undefined;

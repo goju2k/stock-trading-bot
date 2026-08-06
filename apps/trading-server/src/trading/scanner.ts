@@ -63,10 +63,13 @@ async function tick(sessionId: number) {
   return config;
 }
 
+let stopped = false;
+
 export function startScanner(sessionId: number) {
   if (timer) {
     return;
   }
+  stopped = false;
 
   const loop = async () => {
     let refreshRateMs = 1000;
@@ -76,7 +79,12 @@ export function startScanner(sessionId: number) {
     } catch (error) {
       console.error('[scanner] tick failed', error);
     }
-    timer = setTimeout(loop, refreshRateMs);
+    // stopScanner()가 이 tick()이 진행되는 동안 호출됐으면(레이트리밋 지연 등으로 tick 자체가
+    // 오래 걸릴 때 특히) 여기서 다시 스케줄을 걸면 안 된다 - stopped 플래그로 확인
+    // (2026-08-06: 이 체크가 없어서 stopScanner() 호출 직후에도 스캐너가 계속 돌던 버그).
+    if (!stopped) {
+      timer = setTimeout(loop, refreshRateMs);
+    }
   };
 
   loop();
@@ -84,6 +92,7 @@ export function startScanner(sessionId: number) {
 }
 
 export function stopScanner() {
+  stopped = true;
   if (timer) {
     clearTimeout(timer);
     timer = undefined;
