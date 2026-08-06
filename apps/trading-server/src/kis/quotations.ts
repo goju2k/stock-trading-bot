@@ -42,7 +42,7 @@ export async function fetchViStatus(baseDate: string) {
     'uapi/domestic-stock/v1/quotations/inquire-vi-status',
     {
       params: {
-        FID_DIV_CLS_CODE: '0', // 0:전체 1:상승 2:하락
+        FID_DIV_CLS_CODE: '1', // 0:전체 1:상승 2:하락
         FID_COND_SCR_DIV_CODE: '20139',
         FID_MRKT_CLS_CODE: '0', // 0:전체 K:거래소 Q:코스닥
         FID_INPUT_ISCD: '',
