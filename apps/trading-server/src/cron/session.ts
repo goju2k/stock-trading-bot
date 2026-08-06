@@ -10,16 +10,19 @@ import {
   resumeOpenWatchers,
   startForeignInstitutionCache,
   startGapScanner,
+  startMarketConditionCache,
   startScanner,
   startViScanner,
   stopForeignInstitutionCache,
   stopGapScanner,
+  stopMarketConditionCache,
   stopScanner,
   stopViScanner,
 } from '../trading';
 
 function startAllScanners(sessionId: number) {
   startForeignInstitutionCache();
+  startMarketConditionCache();
   startScanner(sessionId);
   startViScanner(sessionId);
   startGapScanner(sessionId);
@@ -30,6 +33,7 @@ function stopAllScanners() {
   stopViScanner();
   stopGapScanner();
   stopForeignInstitutionCache();
+  stopMarketConditionCache();
 }
 
 // 09:00 세션 오픈 직전, 계좌에 아직 남아있는 잔여 포지션(전일 이전 세션에서 정상적으로

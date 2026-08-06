@@ -1,4 +1,5 @@
 import { executeBuy } from './execute-buy';
+import { isMarketBullish } from './market-condition';
 import { getOrderedCodesToday } from './session-orders';
 
 import { getTradingConfig } from '../config/trading-config';
@@ -26,6 +27,11 @@ function isRecentRelease(item: ViStatusItem) {
 async function tick(sessionId: number) {
   const config = await getTradingConfig();
   if (!config.autoTradingEnabled || !config.viStrategyEnabled) {
+    return;
+  }
+
+  // 코스피가 하락중이면 신규 스캔을 멈춘다 (market-condition.ts 참고).
+  if (!isMarketBullish()) {
     return;
   }
 

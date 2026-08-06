@@ -1,6 +1,6 @@
 import { assertKisSuccess, getKisClient } from './client';
 import { COMMON_TR_ID } from './tr-id';
-import { BusinessDayItem, FluctuationItem, ForeignInstitutionItem, KisResponse, ViStatusItem, VolumeRankItem } from './types';
+import { BusinessDayItem, FluctuationItem, ForeignInstitutionItem, IndexPriceItem, KisResponse, ViStatusItem, VolumeRankItem } from './types';
 
 export interface VolumeRankFilter {
   minPrice: number;
@@ -108,6 +108,24 @@ export async function fetchFluctuationRank(filter: VolumeRankFilter) {
   );
   assertKisSuccess(res.data);
   return res.data.output || [];
+}
+
+// 국내업종 현재지수 (코스피 등). 시장 레짐 필터(market-condition.ts)가 하락장에 전체 스캔을
+// 멈추는 데 쓴다. iscd 예: 코스피 0001, 코스닥 1001, 코스피200 2001.
+export async function fetchIndexPrice(iscd: string) {
+  const client = await getKisClient();
+  const res = await client.get<KisResponse<IndexPriceItem>>(
+    'uapi/domestic-stock/v1/quotations/inquire-index-price',
+    {
+      params: {
+        FID_COND_MRKT_DIV_CODE: 'U',
+        FID_INPUT_ISCD: iscd,
+      },
+      headers: { tr_id: COMMON_TR_ID.indexPrice },
+    },
+  );
+  assertKisSuccess(res.data);
+  return res.data.output;
 }
 
 // 기준일자(YYYYMMDD)의 개장여부 조회.

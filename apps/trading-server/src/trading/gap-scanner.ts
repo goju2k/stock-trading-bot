@@ -1,4 +1,5 @@
 import { executeBuy } from './execute-buy';
+import { isMarketBullish } from './market-condition';
 import { getOrderedCodesToday } from './session-orders';
 
 import { getTradingConfig } from '../config/trading-config';
@@ -43,6 +44,12 @@ async function tick(sessionId: number): Promise<boolean> {
   if (elapsedMinutes > config.gapScanWindowMinutes) {
     console.log(`[gap-scanner] scan window (${config.gapScanWindowMinutes}min) elapsed - stopping`);
     return false;
+  }
+
+  // 코스피가 하락중이면 이번 틱은 건너뛴다 (market-condition.ts 참고) - 스캔 창 자체를
+  // 끝내는 건 아니라서 나중에 시장이 반등하면 남은 창 시간 안에서 다시 스캔한다.
+  if (!isMarketBullish()) {
+    return true;
   }
 
   const items = await fetchFluctuationRank({

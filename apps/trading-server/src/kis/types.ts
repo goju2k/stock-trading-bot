@@ -94,3 +94,11 @@ export interface FluctuationItem {
   oprc_vrss_prpr_rate: string; // 시가 대비 현재가 비율 (현재가 vs 시가) - 시가 역산에 사용
   acml_vol: string; // 누적거래량
 }
+
+// [국내주식] 업종/기타 > 국내업종 현재지수 [v1_국내주식-063]. 시장 레짐 필터(market-condition.ts)용.
+export interface IndexPriceItem {
+  bstp_nmix_prpr: string; // 업종 지수 현재가
+  bstp_nmix_prdy_vrss: string; // 업종 지수 전일 대비
+  prdy_vrss_sign: string; // 전일 대비 부호 (1:상한 2:상승 3:보합 4:하락 5:하한)
+  bstp_nmix_prdy_ctrt: string; // 업종 지수 전일 대비율 (%)
+}

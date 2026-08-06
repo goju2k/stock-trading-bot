@@ -1,5 +1,6 @@
 import { executeBuy } from './execute-buy';
 import { isForeignInstitutionNetBuy } from './foreign-institution-cache';
+import { isMarketBullish } from './market-condition';
 import { getOrderedCodesToday } from './session-orders';
 import { isTargetRow } from './target-filter';
 
@@ -18,6 +19,12 @@ async function tick(sessionId: number) {
   const prisma = getPrisma();
 
   if (!config.autoTradingEnabled) {
+    return config;
+  }
+
+  // 코스피가 하락중이면 신규 스캔을 멈춘다 - market-condition.ts 참고 (롱온리 모멘텀 전략이라
+  // 하락장에서 개별 종목 강세도 같이 끌려갈 확률이 높다, 2026-08-06 확인).
+  if (!isMarketBullish()) {
     return config;
   }
 
