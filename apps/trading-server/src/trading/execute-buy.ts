@@ -1,6 +1,7 @@
 import { TradingConfig } from '@prisma/client';
 
 import { logTradeEvent } from './log-trade-event';
+import { getMarketTickDelta } from './market-condition';
 import { PositionWatcher } from './position-watcher';
 import { TradingRuntime } from './runtime';
 
@@ -15,6 +16,9 @@ export interface ExecuteBuyInput {
   price: number;
   // 어느 진입 전략이 이 매수를 트리거했는지 ('volume_rank' | 'vi_release' | ...).
   sourceStrategy: string;
+  // vi_release 소스일 때만 vi-scanner.ts가 채워서 넘김 - 회고용 스냅샷 (Order.viKindCode/viDprt).
+  viKindCode?: string;
+  viDprt?: string;
 }
 
 // 1건당 매수금액의 최대/최소 기준액. 장 시작 시점 가용현금(TradingSession.startingCash) 스냅샷에
@@ -35,7 +39,7 @@ async function resolveOrderAmtRange(sessionId: number, config: TradingConfig, fa
 // 매수 주문 실행 + Order/TradeEvent 기록 + PositionWatcher 기동. scanner.ts(거래대금순위)와
 // vi-scanner.ts(VI 해제 모멘텀)가 공유하는 공통 매수 체결 경로 - 진입 신호만 다르고 이후
 // 체결/청산 처리는 전략 무관하게 동일하다.
-export async function executeBuy({ sessionId, config, code, name, price, sourceStrategy }: ExecuteBuyInput) {
+export async function executeBuy({ sessionId, config, code, name, price, sourceStrategy, viKindCode, viDprt }: ExecuteBuyInput) {
   const prisma = getPrisma();
 
   const { summary } = await inquireBalance();
@@ -73,7 +77,7 @@ export async function executeBuy({ sessionId, config, code, name, price, sourceS
     return;
   }
 
-  const order = await prisma.order.create({ data: { sessionId, code, name, buyPrice: price, qty, kisOrderNo: res.output.ODNO, sourceStrategy } });
+  const order = await prisma.order.create({ data: { sessionId, code, name, buyPrice: price, qty, kisOrderNo: res.output.ODNO, sourceStrategy, viKindCode, viDprt, kospiDeltaAtBuy: getMarketTickDelta() } });
 
   await logTradeEvent({
     sessionId,

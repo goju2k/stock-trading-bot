@@ -2,6 +2,7 @@ import { PositionState } from '@prisma/client';
 
 import { BalanceListener, BalancePoller } from './balance-poller';
 import { logTradeEvent } from './log-trade-event';
+import { getMarketTickDelta } from './market-condition';
 
 import { inquireBalance, placeMarketOrder } from '../kis';
 import { InquireBalanceItem } from '../kis/types';
@@ -133,7 +134,7 @@ export class PositionWatcher {
     const price = Number(current.prpr);
     const sellQty = Number(current.hldg_qty);
     const pnl = Math.round((price - Number(current.pchs_avg_pric)) * sellQty);
-    await this.persist({ sellPrice: price, sellQty, pnl });
+    await this.persist({ sellPrice: price, sellQty, pnl, kospiDeltaAtSell: getMarketTickDelta() });
 
     await logTradeEvent({ sessionId: this.sessionId, type: 'forced_liquidation', code: this.code, name: this.name, message: reason, payload: { qty: sellQty, price, pnl }, notify: options?.notify ?? true });
 
@@ -160,7 +161,7 @@ export class PositionWatcher {
     return `종목:[${this.code}] 처리상태:[${this.state}] ${this.stateMessage} ${target}`;
   }
 
-  private persist(fields: Partial<{ state: PositionState; sellAmtHigh: number; sellAmtLow: number; peakPrice: number; highOrLow: string; stateMessage: string; sellPrice: number; sellQty: number; pnl: number; closedAt: Date; }>) {
+  private persist(fields: Partial<{ state: PositionState; sellAmtHigh: number; sellAmtLow: number; peakPrice: number; highOrLow: string; stateMessage: string; sellPrice: number; sellQty: number; pnl: number; kospiDeltaAtSell: number; closedAt: Date; }>) {
     return getPrisma().positionWatcher.update({ where: { id: this.id }, data: fields }).catch((error) => {
       console.error(`[position-watcher:${this.code}] persist failed`, error);
     });
@@ -248,7 +249,7 @@ export class PositionWatcher {
       // 아니라 KIS 잔고의 실시간 매입평균가(pchs_avg_pric)로 계산해야 정확하다 - 변동성 장에서는
       // 시장가 체결가가 참고가와 다를 수 있다(watchForSell 상단 comment 참고).
       const pnl = Math.round((price - Number(current.pchs_avg_pric)) * Number(qty));
-      await this.persist({ sellPrice: price, sellQty: Number(qty), pnl });
+      await this.persist({ sellPrice: price, sellQty: Number(qty), pnl, kospiDeltaAtSell: getMarketTickDelta() });
 
       await logTradeEvent({ sessionId: this.sessionId, type: 'sell_executed', code: this.code, name: this.name, message: `매도 체결 (${this.highOrLow}) ${qty}주 @ ${price}원 (손익 ${pnl}원)`, payload: { qty, price, pnl } });
 

@@ -1,27 +1,63 @@
 import { fetchIndexPrice } from '../kis';
+import { DISCORD_COLOR, sendDiscordMessage } from '../notify/discord';
 
-const REFRESH_INTERVAL_MS = 60 * 1000; // 지수가 틱마다 바뀌긴 하지만 스캐너 판단용으론 1분이면 충분
+const REFRESH_INTERVAL_MS = 60 * 1000;
 const KOSPI_ISCD = '0001';
+// 틱(REFRESH_INTERVAL_MS 간격) 간 순간변화율 기준치(%). 전일종가 대비가 아니라 "직전 틱 대비
+// 지금 얼마나 움직였나"를 본다 - 매수세가 실제로 붙어서 오르는 중인지가 중요하지, 그날 지수가
+// 절대적으로 플러스인지 마이너스인지는 부차적이다(2026-08-07, 이전 버전의 "전일대비 부호"
+// 필터는 아침에 오른 뒤 하루 종일 흘러내리는 장에서 오전 내내 "상승"으로 잘못 판정했다).
+const TICK_THRESHOLD_PERCENT = 0.02;
+// 틱 하나의 노이즈로 바로 상태를 뒤집지 않고, 같은 방향이 연속으로 나와야 전환한다.
+const CONFIRM_TICKS = 2;
 
-// 코스피 전일대비 상승중일 때만 신규 스캔을 허용한다 - 롱온리 모멘텀 전략(거래대금순위/VI상승/
-// 시가갭) 셋 다 "지금 강한 종목은 계속 강할 것"이 전제라, 지수 자체가 하락 중이면 개별 종목의
-// 강세도 시장 하방에 같이 끌려갈 확률이 높고 세 전략이 전부 같은 방향에 베팅하고 있어 분산 효과가
-// 없다(2026-08-06 하락장에서 vi_release/gap_up 둘 다 큰 손실 확인 후 도입).
-// 조회 실패시엔 직전 상태를 유지한다 - 이 캐시 하나가 또 다른 단일장애점이 돼서 지수 조회
-// 문제만으로 하루 전체 매매가 막히는 걸 원치 않는다(fetchStartingCash 등과 같은 원칙).
-let bullish = true; // 최초 조회 전 기본값 - 안전 쪽(false)이 아니라 허용 쪽으로 시작
+// 최초 조회 전 기본값 - 안전 쪽(중단)이 아니라 허용 쪽으로 시작 (기존 동작 유지).
+let bullish = true;
+let lastPrice: number | undefined;
+let lastDelta: number | undefined;
+let pendingDirection: boolean | undefined;
+let pendingCount = 0;
 let timer: NodeJS.Timeout | undefined;
 
 async function refresh() {
   try {
     const item = await fetchIndexPrice(KOSPI_ISCD);
-    const pctChange = Number(item?.bstp_nmix_prdy_ctrt);
-    if (!Number.isFinite(pctChange)) {
-      console.error('[market-condition] invalid bstp_nmix_prdy_ctrt in response - keeping previous state', item);
+    const price = Number(item?.bstp_nmix_prpr);
+    if (!Number.isFinite(price)) {
+      console.error('[market-condition] invalid bstp_nmix_prpr in response - keeping previous state', item);
       return;
     }
-    bullish = pctChange > 0;
-    console.log(`[market-condition] KOSPI ${pctChange}% -> ${bullish ? '상승(스캔 허용)' : '하락/보합(스캔 중단)'}`);
+
+    if (lastPrice === undefined) {
+      // 첫 틱은 비교 대상이 없어서 방향 판단을 보류한다.
+      lastPrice = price;
+      return;
+    }
+
+    const delta = ((price - lastPrice) / lastPrice) * 100;
+    lastPrice = price;
+    lastDelta = delta;
+
+    const tickBullish = delta >= TICK_THRESHOLD_PERCENT;
+
+    if (tickBullish === pendingDirection) {
+      pendingCount += 1;
+    } else {
+      pendingDirection = tickBullish;
+      pendingCount = 1;
+    }
+
+    console.log(`[market-condition] KOSPI ${price} (틱Δ ${delta.toFixed(3)}%, ${tickBullish ? '매수세' : '약세'} 연속 ${pendingCount}회) 현재상태=${bullish ? '허용' : '중단'}`);
+
+    if (pendingCount >= CONFIRM_TICKS && tickBullish !== bullish) {
+      bullish = tickBullish;
+      console.log(`[market-condition] 상태 전환 -> ${bullish ? '허용(재개)' : '중단'}`);
+      await sendDiscordMessage({
+        title: bullish ? '🟢 스캔 재개' : '🟡 스캔 중단',
+        description: `코스피 틱간 변화율 ${delta.toFixed(3)}% (연속 ${pendingCount}회) - 신규 스캔 ${bullish ? '재개' : '중단'}`,
+        color: bullish ? DISCORD_COLOR.green : DISCORD_COLOR.yellow,
+      });
+    }
   } catch (error) {
     console.error('[market-condition] refresh failed - keeping previous state', error);
   }
@@ -42,8 +78,18 @@ export function stopMarketConditionCache() {
     timer = undefined;
   }
   bullish = true;
+  lastPrice = undefined;
+  lastDelta = undefined;
+  pendingDirection = undefined;
+  pendingCount = 0;
 }
 
 export function isMarketBullish() {
   return bullish;
+}
+
+// 매수/매도 시점의 시장 상태를 회고용으로 같이 남기기 위한 값 (Order.kospiDeltaAtBuy /
+// PositionWatcher.kospiDeltaAtSell). 아직 첫 틱도 못 돈 상태(재시작 직후 등)면 undefined.
+export function getMarketTickDelta() {
+  return lastDelta;
 }

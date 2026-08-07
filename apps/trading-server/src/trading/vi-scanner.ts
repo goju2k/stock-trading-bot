@@ -61,6 +61,8 @@ async function tick(sessionId: number) {
       name: target.hts_kor_isnm,
       price: Number(target.vi_prc),
       sourceStrategy: 'vi_release',
+      viKindCode: target.vi_kind_code,
+      viDprt: target.vi_dprt,
     });
   }
 

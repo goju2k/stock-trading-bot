@@ -16,7 +16,9 @@ export async function fetchVolumeRank(filter: VolumeRankFilter) {
       params: {
         FID_COND_MRKT_DIV_CODE: 'J',
         FID_COND_SCR_DIV_CODE: '20171',
-        FID_INPUT_ISCD: '0000',
+        // 0000(전체) -> 0001(코스피 업종코드): 코스피 종목으로 매수 대상을 한정하는 실험
+        // (2026-08-07, market-condition.ts의 틱 측정 기준 자체가 코스피라 대상도 맞춘다).
+        FID_INPUT_ISCD: '0001',
         FID_DIV_CLS_CODE: '0',
         // 0:평균거래량 1:거래증가율 2:평균거래회전율 3:거래금액순 4:평균거래금액회전율
         // 순수 거래량 급증(1) 대신 실제 돈이 몰리는 거래대금순(3)으로 스캔 기준 교체.
@@ -35,7 +37,7 @@ export async function fetchVolumeRank(filter: VolumeRankFilter) {
   return res.data.output || [];
 }
 
-// 오늘(YYYYMMDD) 변동성완화장치(VI) 발동/해제 현황 전체 목록
+// 오늘(YYYYMMDD) 변동성완화장치(VI) 발동/해제 현황 - 정적 VI만(상승, 아래 파라미터 참고).
 export async function fetchViStatus(baseDate: string) {
   const client = await getKisClient();
   const res = await client.get<KisResponse<ViStatusItem[]>>(
@@ -44,9 +46,13 @@ export async function fetchViStatus(baseDate: string) {
       params: {
         FID_DIV_CLS_CODE: '1', // 0:전체 1:상승 2:하락
         FID_COND_SCR_DIV_CODE: '20139',
-        FID_MRKT_CLS_CODE: '0', // 0:전체 K:거래소 Q:코스닥
+        // 0(전체) -> K(거래소/코스피): 매수 대상을 코스피로 한정하는 실험(scanner.ts와 동일 이유).
+        FID_MRKT_CLS_CODE: 'K',
         FID_INPUT_ISCD: '',
-        FID_RANK_SORT_CLS_CODE: '0', // 0:전체 1:정적 2:동적 3:정적&동적
+        // 0:전체 1:정적 2:동적 3:정적&동적. 정적(기준가 대비 ±10%)만 받는다 - 동적(±2~3%)까지
+        // 섞으면 진짜 큰 변동 없이도 걸리는 잡음성 신호가 많이 들어온다(2026-08-07 확인: 6~7%
+        // 스파이크 꼭대기에서 매수해 되돌림에 손절당하는 패턴이 반복됨 - 동적 VI 규모로 추정).
+        FID_RANK_SORT_CLS_CODE: '1',
         FID_INPUT_DATE_1: baseDate,
         FID_TRGT_CLS_CODE: '',
         FID_TRGT_EXLS_CLS_CODE: '',
