@@ -36,58 +36,86 @@ async function resolveOrderAmtRange(sessionId: number, config: TradingConfig, fa
   };
 }
 
+// getOrderedCodesToday()(Order 테이블 조회)만으로는 같은 틱에 서로 다른 전략이 동시에 같은
+// 종목을 찾아내는 걸 못 막는다 - 두 스캐너 모두 아직 어느 쪽도 Order를 커밋하기 전에 조회하면
+// 둘 다 "아직 안 샀음"으로 보고 동시에 매수를 시도한다(2026-08-10 실사고: 217590 티엠씨를
+// volume_rank/vi_release가 0.9초 간격으로 동시 매수 - KIS 계좌엔 합쳐서 잡히고 한쪽 watcher는
+// 매도주문 실패로 error 상태만 남았다). executeBuy()가 세 전략의 유일한 공유 진입점이므로,
+// 여기 진입 시점(첫 await 이전, 완전히 동기적으로)에 즉시 in-memory Set으로 종목을 예약한다 -
+// JS는 싱글스레드라 동기 코드 사이엔 다른 비동기 작업이 끼어들 수 없으므로 이 예약 자체는
+// 원자적이다. 재시작하면 자연히 비워지는 순수 인메모리 락이라 DB 영속화는 필요 없다 -
+// 매수 시도가 몇 초 안에 끝나는 동안만 막으면 되는 용도.
+const buyLocks = new Set<string>();
+
+function reserveBuyLock(code: string): boolean {
+  if (buyLocks.has(code)) return false;
+  buyLocks.add(code);
+  return true;
+}
+
 // 매수 주문 실행 + Order/TradeEvent 기록 + PositionWatcher 기동. scanner.ts(거래대금순위)와
 // vi-scanner.ts(VI 해제 모멘텀)가 공유하는 공통 매수 체결 경로 - 진입 신호만 다르고 이후
 // 체결/청산 처리는 전략 무관하게 동일하다.
 export async function executeBuy({ sessionId, config, code, name, price, sourceStrategy, viKindCode, viDprt }: ExecuteBuyInput) {
-  const prisma = getPrisma();
-
-  const { summary } = await inquireBalance();
-  const availableCash = Number(summary?.prvs_rcdl_excc_amt);
-  if (!Number.isFinite(availableCash) || availableCash <= 0) {
-    console.error(`[execute-buy] invalid/missing available cash from balance summary - skip buy for ${code}`, summary);
+  if (!reserveBuyLock(code)) {
+    console.log(`[execute-buy] ${code} 다른 전략이 이미 매수 시도 중이라 스킵 (${sourceStrategy})`);
     return;
   }
 
-  const { maxOrderAmt, minOrderAmt } = await resolveOrderAmtRange(sessionId, config, availableCash);
-
-  // 가용현금이 최소 주문금액 밑으로 내려가면 매수 후보가 있어도 더 이상 신규 매수를 하지 않는다 -
-  // 별도의 "최대 보유 포지션 수" 설정 없이 이 조건 하나로 신규 진입을 자연스럽게 막는다.
-  if (availableCash < minOrderAmt) {
-    return;
-  }
-
-  const orderAmt = Math.min(availableCash, maxOrderAmt);
-  const qty = Math.floor(orderAmt / price);
-
-  if (qty <= 0) {
-    return;
-  }
-
-  let res;
   try {
-    res = await placeMarketOrder({ buy: true, code, qty: String(qty) });
-  } catch (error) {
-    await logTradeEvent({ sessionId, type: 'buy_failed', code, name, message: `매수 실패(${sourceStrategy})\n${(error as Error).message}` });
-    return;
+    const prisma = getPrisma();
+
+    const { summary } = await inquireBalance();
+    const availableCash = Number(summary?.prvs_rcdl_excc_amt);
+    if (!Number.isFinite(availableCash) || availableCash <= 0) {
+      console.error(`[execute-buy] invalid/missing available cash from balance summary - skip buy for ${code}`, summary);
+      return;
+    }
+
+    const { maxOrderAmt, minOrderAmt } = await resolveOrderAmtRange(sessionId, config, availableCash);
+
+    // 가용현금이 최소 주문금액 밑으로 내려가면 매수 후보가 있어도 더 이상 신규 매수를 하지 않는다 -
+    // 별도의 "최대 보유 포지션 수" 설정 없이 이 조건 하나로 신규 진입을 자연스럽게 막는다.
+    if (availableCash < minOrderAmt) {
+      return;
+    }
+
+    const orderAmt = Math.min(availableCash, maxOrderAmt);
+    const qty = Math.floor(orderAmt / price);
+
+    if (qty <= 0) {
+      return;
+    }
+
+    let res;
+    try {
+      res = await placeMarketOrder({ buy: true, code, qty: String(qty) });
+    } catch (error) {
+      await logTradeEvent({ sessionId, type: 'buy_failed', code, name, message: `매수 실패(${sourceStrategy})\n${(error as Error).message}` });
+      return;
+    }
+
+    if (res.rt_cd !== '0') {
+      await logTradeEvent({ sessionId, type: 'buy_failed', code, name, message: `매수 실패(${sourceStrategy}) ${res.msg1}` });
+      return;
+    }
+
+    const order = await prisma.order.create({ data: { sessionId, code, name, buyPrice: price, qty, kisOrderNo: res.output.ODNO, sourceStrategy, viKindCode, viDprt, kospiDeltaAtBuy: getMarketTickDelta() } });
+
+    await logTradeEvent({
+      sessionId,
+      type: 'buy_executed',
+      code,
+      name,
+      message: `매수 체결(${sourceStrategy}) ${qty}주 @ ${price}원`,
+      payload: { qty, price, sourceStrategy },
+    });
+
+    const watcher = await PositionWatcher.start(sessionId, order.id, code, name, config.highPercentage, config.lowPercentage, (w) => TradingRuntime.remove(w.code));
+    TradingRuntime.add(watcher);
+  } finally {
+    // 성공/스킵/실패 무관하게 항상 해제 - 스킵된 경우 다른 전략이 나중에 다시 시도할 수 있는
+    // 기존 동작(각 스캐너 자신의 passedCodes/viActedCodes 풀만 스킵을 기억)은 그대로 둔다.
+    buyLocks.delete(code);
   }
-
-  if (res.rt_cd !== '0') {
-    await logTradeEvent({ sessionId, type: 'buy_failed', code, name, message: `매수 실패(${sourceStrategy}) ${res.msg1}` });
-    return;
-  }
-
-  const order = await prisma.order.create({ data: { sessionId, code, name, buyPrice: price, qty, kisOrderNo: res.output.ODNO, sourceStrategy, viKindCode, viDprt, kospiDeltaAtBuy: getMarketTickDelta() } });
-
-  await logTradeEvent({
-    sessionId,
-    type: 'buy_executed',
-    code,
-    name,
-    message: `매수 체결(${sourceStrategy}) ${qty}주 @ ${price}원`,
-    payload: { qty, price, sourceStrategy },
-  });
-
-  const watcher = await PositionWatcher.start(sessionId, order.id, code, name, config.highPercentage, config.lowPercentage, (w) => TradingRuntime.remove(w.code));
-  TradingRuntime.add(watcher);
 }
