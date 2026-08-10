@@ -14,8 +14,13 @@ const TICK_THRESHOLD_PERCENT = 0.02;
 // 없다. TICK_THRESHOLD_PERCENT는 그대로 두고 확인 틱수만 늘려서 더 지속적인 추세만 반영한다.
 const CONFIRM_TICKS = 4;
 
-// 최초 조회 전 기본값 - 안전 쪽(중단)이 아니라 허용 쪽으로 시작 (기존 동작 유지).
-let bullish = true;
+// 최초 조회 전/세션 시작 시 기본값 - 허용(true)이 아니라 중단(false)으로 시작한다
+// (2026-08-10, true->false로 변경): 장 시작하자마자 확인된 추세 없이 바로 스캔을 허용해버리면
+// 이 필터가 걸러야 할 "아직 방향이 안 잡힌 구간"을 그대로 통과시키는 셈이라 필터의 의미가
+// 없다. 대신 매 세션 시작 시 CONFIRM_TICKS만큼 상승 틱이 연속으로 쌓여야(=상승 곡선이
+// 실제로 확인돼야) 스캔이 열린다 - 초반 몇 분의 매수 기회를 포기하더라도 방향 없는 구간에서의
+// 진입을 막는 쪽을 택함.
+let bullish = false;
 let lastPrice: number | undefined;
 let lastDelta: number | undefined;
 let pendingDirection: boolean | undefined;
@@ -80,7 +85,7 @@ export function stopMarketConditionCache() {
     clearTimeout(timer);
     timer = undefined;
   }
-  bullish = true;
+  bullish = false;
   lastPrice = undefined;
   lastDelta = undefined;
   pendingDirection = undefined;

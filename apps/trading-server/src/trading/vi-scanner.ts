@@ -42,9 +42,8 @@ async function tick(sessionId: number) {
     return;
   }
 
-  // 코스피가 하락중이면 신규 스캔을 멈춘다 (market-condition.ts 참고). config로 끌 수 있다 -
-  // 기본 off (marketRegimeFilterEnabled 참고).
-  if (config.marketRegimeFilterEnabled && !isMarketBullish()) {
+  // 코스피가 하락중이면 신규 스캔을 멈춘다 (market-condition.ts 참고).
+  if (!isMarketBullish()) {
     return;
   }
 
