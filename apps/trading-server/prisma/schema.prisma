@@ -157,6 +157,9 @@ model PositionWatcher {
   // 매도 주문 시점 코스피 틱간 순간변화율(market-condition.ts) 스냅샷 - Order.kospiDeltaAtBuy와
   // 짝을 이뤄서, 나중에 "매도 순간에 시장이 이미 꺾이고 있었는지"를 DB로 바로 조회할 수 있게 한다.
   kospiDeltaAtSell Float?
+  // 진입가(실제 매입평균가) 이상으로 처음 올라선 시각 - 익절 타임아웃(PROFIT_TIMEOUT_MS,
+  // position-watcher.ts) 카운트 시작점. 재시작 후에도 카운트가 리셋되지 않도록 영속화한다.
+  profitSince    DateTime?
   // 이 포지션 추적이 끝난 시각 (done/error 공통) - 매도가 확정된 시각이 아니라 상태머신이
   // 종료된 시각이라는 점에 주의(sell_waiting 확정까지는 시차가 있을 수 있다).
   closedAt       DateTime?

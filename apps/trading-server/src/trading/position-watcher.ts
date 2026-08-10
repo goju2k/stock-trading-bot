@@ -21,7 +21,16 @@ export interface ResumeRow {
   sellAmtLow: unknown;
   peakPrice: unknown;
   highOrLow: string | null;
+  profitSince: Date | null;
 }
+
+// 익절권(진입가 이상)에 처음 들어선 뒤 이 시간 안에 익절선을 못 뚫으면 그 시점 가격 그대로
+// 정리한다 - 5분(2026-08-10, 실거래 사례 기반: VI 해제 종목은 매도세에 밀려 3% 완주할 힘이
+// 부족한 경우가 많고, 그날 029460는 매수 후 4~5분 만에 +2%대 고점을 찍은 뒤 30분에 걸쳐
+// 서서히 반납하다 트레일링 손절로 마감됨 - "익절선을 못 뚫는다는 건 이미 힘이 빠졌다는 뜻이니
+// 더 못 버티게 하고 그 자리에서 잘라내자"는 가정). 트레일링 손절선(sellAmtLow)에 이미 걸려서
+// 손실권으로 내려간 뒤에는 이 타임아웃을 적용하지 않는다 - 그건 여전히 트레일링 손절의 몫이다.
+const PROFIT_TIMEOUT_MS = 5 * 60 * 1000;
 
 // 기존 shared/states/global/.../trading-strategy.ts(TradingStrategy) +
 // services/trading/src/trading-strategy/sell-by-percent.ts(SellByPercent) 포팅.
@@ -52,7 +61,16 @@ export class PositionWatcher {
   // 트레일링 스탑 고점 (watching_for_sell 진입 이후 관측된 최고가)
   peakPrice = 0;
 
-  highOrLow: 'high' | 'low' | '' = '';
+  // 실제 매입평균가 (익절 타임아웃의 "진입가 이상인가" 판단 기준). DB엔 별도 컬럼 없이
+  // sellAmtHigh/highPercentage로부터 역산 가능해서 재시작 복구(resume) 시 그렇게 채운다.
+  entryPrice = 0;
+
+  highOrLow: 'high' | 'low' | 'timeout' | '' = '';
+
+  // 진입가 이상으로 처음 올라선 시각 - PROFIT_TIMEOUT_MS 카운트 시작점. 한번 세팅되면
+  // 이후 다시 진입가 밑으로 내려가도 리셋하지 않는다("5분 안에 익절선을 못 뚫으면 이미
+  // 힘이 빠진 것"이라는 가정이 한번 성립하면 그걸로 충분하다는 판단).
+  profitSince?: Date;
 
   stateMessage = '';
 
@@ -86,7 +104,9 @@ export class PositionWatcher {
     watcher.sellAmtHigh = row.sellAmtHigh ? Number(row.sellAmtHigh) : 0;
     watcher.sellAmtLow = row.sellAmtLow ? Number(row.sellAmtLow) : 0;
     watcher.peakPrice = row.peakPrice ? Number(row.peakPrice) : 0;
-    watcher.highOrLow = (row.highOrLow as 'high' | 'low' | '') || '';
+    watcher.highOrLow = (row.highOrLow as 'high' | 'low' | 'timeout' | '') || '';
+    watcher.profitSince = row.profitSince ?? undefined;
+    watcher.entryPrice = watcher.sellAmtHigh > 0 ? watcher.sellAmtHigh / (1 + watcher.highPercentage / 100) : 0;
 
     if (row.state === 'sell_waiting') {
       watcher.sellWaiting();
@@ -161,7 +181,7 @@ export class PositionWatcher {
     return `종목:[${this.code}] 처리상태:[${this.state}] ${this.stateMessage} ${target}`;
   }
 
-  private persist(fields: Partial<{ state: PositionState; sellAmtHigh: number; sellAmtLow: number; peakPrice: number; highOrLow: string; stateMessage: string; sellPrice: number; sellQty: number; pnl: number; kospiDeltaAtSell: number; closedAt: Date; }>) {
+  private persist(fields: Partial<{ state: PositionState; sellAmtHigh: number; sellAmtLow: number; peakPrice: number; highOrLow: string; stateMessage: string; sellPrice: number; sellQty: number; pnl: number; kospiDeltaAtSell: number; profitSince: Date; closedAt: Date; }>) {
     return getPrisma().positionWatcher.update({ where: { id: this.id }, data: fields }).catch((error) => {
       console.error(`[position-watcher:${this.code}] persist failed`, error);
     });
@@ -194,6 +214,7 @@ export class PositionWatcher {
 
     if (holding) {
       const myAmt = Number(holding.pchs_avg_pric);
+      this.entryPrice = myAmt;
       this.sellAmtHigh = highAmt;
       this.peakPrice = Math.max(myAmt, Number(holding.prpr));
       this.sellAmtLow = Number((this.peakPrice - (this.peakPrice * this.lowPercentage) / 100).toFixed(0));
@@ -219,11 +240,27 @@ export class PositionWatcher {
         this.persist({ peakPrice: this.peakPrice, sellAmtLow: this.sellAmtLow });
       }
 
+      if (!this.profitSince && this.entryPrice > 0 && price >= this.entryPrice) {
+        this.profitSince = new Date();
+        this.persist({ profitSince: this.profitSince });
+      }
+
       const checkHigh = price >= highAmt;
       const checkLow = price <= this.sellAmtLow;
-      if (!checkHigh && !checkLow) return;
+      // 익절권 진입 후 PROFIT_TIMEOUT_MS 안에 익절선을 못 뚫었으면 지금 가격 그대로 정리한다.
+      // 이미 손실권(진입가 미만)으로 내려간 경우는 트레일링 손절(checkLow)의 몫이라 제외한다.
+      const checkTimeout = !checkHigh && !checkLow && !!this.profitSince
+        && Date.now() - this.profitSince.getTime() >= PROFIT_TIMEOUT_MS
+        && price >= this.entryPrice;
+      if (!checkHigh && !checkLow && !checkTimeout) return;
 
-      this.highOrLow = checkHigh ? 'high' : 'low';
+      if (checkHigh) {
+        this.highOrLow = 'high';
+      } else if (checkLow) {
+        this.highOrLow = 'low';
+      } else {
+        this.highOrLow = 'timeout';
+      }
       BalancePoller.removeListener(listener);
       await this.persist({ highOrLow: this.highOrLow });
 
