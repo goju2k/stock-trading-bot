@@ -14,12 +14,24 @@ import { getPrisma } from '../lib/prisma';
 const SCAN_INTERVAL_MS = 3000;
 // 180 -> 90 (2026-08-05, 전략 실험): 해제 후 너무 늦게 반응한 뒤늦은 진입을 더 타이트하게 거른다.
 const RECENT_RELEASE_WINDOW_SEC = 90;
+// 정적VI발동괴리율(vi_dprt)이 이 값(%) 이상이면 매수 대상에서 제외한다. 정적 VI 기준가 대비
+// ±30%가 상한가라, 괴리율이 그 근처면 사실상 상한가를 잡는 것과 같아서 진입 즉시 되돌림만
+// 남는다 - 2026-08-10 실사용 첫날 확인: viDprt 29.95%로 진입한 건 그대로 손절, 16.38%짜리도
+// 손절인 반면 정상적인 10%대 진입(정적 VI 발동 기준 자체가 ±10%라 대부분 여기 몰림)은 절반
+// 가까이 익절로 마감했다. 임계값 15%는 "정상적인 10%대 트리거"와 "이상치성 급등"을 가르는
+// 여유 마진으로 잡은 값 - 데이터가 더 쌓이면 재조정.
+const MAX_VI_DPRT_PERCENT = 15;
 
 let timer: NodeJS.Timeout | undefined;
 
 function isRecentRelease(item: ViStatusItem) {
   if (!item.vi_cncl_hour) return false; // 공란 = 아직 발동중(미해제)
   return hhmmssDiffSeconds(item.vi_cncl_hour, nowHHMMSS()) <= RECENT_RELEASE_WINDOW_SEC;
+}
+
+function isBelowUpperLimitDprt(item: ViStatusItem) {
+  const dprt = Number(item.vi_dprt);
+  return Number.isFinite(dprt) && dprt < MAX_VI_DPRT_PERCENT;
 }
 
 // VI(변동성완화장치) 해제 모멘텀 전략. 거래대금순위 스캐너와는 독립적으로 돌면서, 방금 VI가
@@ -30,8 +42,9 @@ async function tick(sessionId: number) {
     return;
   }
 
-  // 코스피가 하락중이면 신규 스캔을 멈춘다 (market-condition.ts 참고).
-  if (!isMarketBullish()) {
+  // 코스피가 하락중이면 신규 스캔을 멈춘다 (market-condition.ts 참고). config로 끌 수 있다 -
+  // 기본 off (marketRegimeFilterEnabled 참고).
+  if (config.marketRegimeFilterEnabled && !isMarketBullish()) {
     return;
   }
 
@@ -48,7 +61,7 @@ async function tick(sessionId: number) {
   // 아직 발동중인 종목은 acted에 넣지 않는다 - 나중에 해제되면 그때 잡아야 하므로.
   const recentReleases = items.filter(isRecentRelease);
   const target = recentReleases.find(
-    (item) => !acted.has(item.mksc_shrn_iscd) && !orderedToday.has(item.mksc_shrn_iscd),
+    (item) => !acted.has(item.mksc_shrn_iscd) && !orderedToday.has(item.mksc_shrn_iscd) && isBelowUpperLimitDprt(item),
   );
 
   if (target) {

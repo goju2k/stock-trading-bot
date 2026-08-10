@@ -47,8 +47,9 @@ async function tick(sessionId: number): Promise<boolean> {
   }
 
   // 코스피가 하락중이면 이번 틱은 건너뛴다 (market-condition.ts 참고) - 스캔 창 자체를
-  // 끝내는 건 아니라서 나중에 시장이 반등하면 남은 창 시간 안에서 다시 스캔한다.
-  if (!isMarketBullish()) {
+  // 끝내는 건 아니라서 나중에 시장이 반등하면 남은 창 시간 안에서 다시 스캔한다. config로
+  // 끌 수 있다 - 기본 off (marketRegimeFilterEnabled 참고).
+  if (config.marketRegimeFilterEnabled && !isMarketBullish()) {
     return true;
   }
 

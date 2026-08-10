@@ -64,6 +64,11 @@ model TradingConfig {
   viStrategyEnabled  Boolean  @default(true)
   // 시가 갭 상승 전략(gap-scanner.ts) on/off.
   gapStrategyEnabled Boolean  @default(true)
+  // 코스피 틱기반 시장 레짐 필터(market-condition.ts) 게이트를 실제로 신규 스캔 차단에
+  // 쓸지 여부. 기본 false - 캐시/디스코드 알림(중단/재개)은 이 값과 무관하게 항상 동작해서
+  // 델타 패턴을 먼저 관찰하고, 이 값을 true로 켜야 실제로 스캔을 막기 시작한다
+  // (2026-08-10: 켜자마자 하루 41회 전환 - 튜닝 없이 바로 켜면 스캔이 너무 자주 막힌다).
+  marketRegimeFilterEnabled Boolean @default(false)
   // 전일종가 대비 시가 갭이 이 값(%) 이상이면 매수 후보.
   gapUpThresholdPercent Float @default(3)
   // 세션 시작(openedAt) 이후 이 분(分) 동안만 갭 스캐너가 동작 (장 시작 직후 갭에만 반응).
