@@ -75,6 +75,7 @@ async function tick(sessionId: number) {
       sourceStrategy: 'vi_release',
       viKindCode: target.vi_kind_code,
       viDprt: target.vi_dprt,
+      viReleaseHour: target.vi_cncl_hour,
     });
   }
 

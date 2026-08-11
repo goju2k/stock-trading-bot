@@ -16,9 +16,10 @@ export interface ExecuteBuyInput {
   price: number;
   // 어느 진입 전략이 이 매수를 트리거했는지 ('volume_rank' | 'vi_release' | ...).
   sourceStrategy: string;
-  // vi_release 소스일 때만 vi-scanner.ts가 채워서 넘김 - 회고용 스냅샷 (Order.viKindCode/viDprt).
+  // vi_release 소스일 때만 vi-scanner.ts가 채워서 넘김 - 회고용 스냅샷 (Order.viKindCode/viDprt/viReleaseHour).
   viKindCode?: string;
   viDprt?: string;
+  viReleaseHour?: string;
 }
 
 // 1건당 매수금액의 최대/최소 기준액. 장 시작 시점 가용현금(TradingSession.startingCash) 스냅샷에
@@ -56,7 +57,7 @@ function reserveBuyLock(code: string): boolean {
 // 매수 주문 실행 + Order/TradeEvent 기록 + PositionWatcher 기동. scanner.ts(거래대금순위)와
 // vi-scanner.ts(VI 해제 모멘텀)가 공유하는 공통 매수 체결 경로 - 진입 신호만 다르고 이후
 // 체결/청산 처리는 전략 무관하게 동일하다.
-export async function executeBuy({ sessionId, config, code, name, price, sourceStrategy, viKindCode, viDprt }: ExecuteBuyInput) {
+export async function executeBuy({ sessionId, config, code, name, price, sourceStrategy, viKindCode, viDprt, viReleaseHour }: ExecuteBuyInput) {
   if (!reserveBuyLock(code)) {
     console.log(`[execute-buy] ${code} 다른 전략이 이미 매수 시도 중이라 스킵 (${sourceStrategy})`);
     return;
@@ -100,7 +101,7 @@ export async function executeBuy({ sessionId, config, code, name, price, sourceS
       return;
     }
 
-    const order = await prisma.order.create({ data: { sessionId, code, name, buyPrice: price, qty, kisOrderNo: res.output.ODNO, sourceStrategy, viKindCode, viDprt, kospiDeltaAtBuy: getMarketTickDelta() } });
+    const order = await prisma.order.create({ data: { sessionId, code, name, buyPrice: price, qty, kisOrderNo: res.output.ODNO, sourceStrategy, viKindCode, viDprt, viReleaseHour, kospiDeltaAtBuy: getMarketTickDelta() } });
 
     await logTradeEvent({
       sessionId,
@@ -111,7 +112,7 @@ export async function executeBuy({ sessionId, config, code, name, price, sourceS
       payload: { qty, price, sourceStrategy },
     });
 
-    const watcher = await PositionWatcher.start(sessionId, order.id, code, name, config.highPercentage, config.lowPercentage, (w) => TradingRuntime.remove(w.code));
+    const watcher = await PositionWatcher.start(sessionId, order.id, code, name, config.highPercentage, config.lowPercentage, order.orderedAt, (w) => TradingRuntime.remove(w.code));
     TradingRuntime.add(watcher);
   } finally {
     // 성공/스킵/실패 무관하게 항상 해제 - 스킵된 경우 다른 전략이 나중에 다시 시도할 수 있는

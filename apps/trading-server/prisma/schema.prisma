@@ -118,6 +118,11 @@ model Order {
   // 필터를 다시 완화하게 되면 괴리율 구간별 성과를 비교할 수 있게 남겨둔다.
   viKindCode String?
   viDprt     String?
+  // VI 해제시각(HHMMSS) - vi_release 소스일 때만. "해제 직후 얼마나 지나서 매수했는지",
+  // "해제 후 N초 뒤 가격이 어땠는지"를 나중에 회고하기 위한 기준 시각(2026-08-11, VI 릴리즈
+  // 직후 바로 고꾸라지는 종목이 있다는 관찰에서 시작 - 아직 매수 조건으로 쓰지는 않고 데이터만
+  // 쌓는 단계).
+  viReleaseHour String?
   // 매수 체결 시점 코스피 틱간 순간변화율(market-condition.ts) 스냅샷 - 매수 순간의 시장
   // 상태를 나중에 회고하기 위한 기록용. 캐시가 아직 첫 틱을 못 돈 경우 null.
   kospiDeltaAtBuy Float?
@@ -160,6 +165,11 @@ model PositionWatcher {
   // 진입가(실제 매입평균가) 이상으로 처음 올라선 시각 - 익절 타임아웃(PROFIT_TIMEOUT_MS,
   // position-watcher.ts) 카운트 시작점. 재시작 후에도 카운트가 리셋되지 않도록 영속화한다.
   profitSince    DateTime?
+  // 매수(Order.orderedAt) 후 60초 시점의 관측가 - "진입 직후 계속 오르는 중이었는지 아니면
+  // 이미 꺾이고 있었는지"를 나중에 회고하기 위한 데이터(2026-08-11, VI 릴리즈 종목의 일부가
+  // 매수 직후 바로 고꾸라지는 패턴 관찰에서 시작 - 아직 매수/매도 조건으로는 안 쓰고 데이터만
+  // 쌓는 단계). 60초 전에 포지션이 끝나버리면(익절/손절/타임아웃 전부 60초 이내) null로 남는다.
+  priceAt60s     Decimal?      @db.Decimal(12, 2)
   // 이 포지션 추적이 끝난 시각 (done/error 공통) - 매도가 확정된 시각이 아니라 상태머신이
   // 종료된 시각이라는 점에 주의(sell_waiting 확정까지는 시차가 있을 수 있다).
   closedAt       DateTime?

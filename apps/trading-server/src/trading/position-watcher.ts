@@ -22,6 +22,7 @@ export interface ResumeRow {
   peakPrice: unknown;
   highOrLow: string | null;
   profitSince: Date | null;
+  priceAt60s: unknown;
 }
 
 // 익절권(진입가 이상)에 처음 들어선 뒤 이 시간 안에 익절선을 못 뚫으면 그 시점 가격 그대로
@@ -57,6 +58,9 @@ export class PositionWatcher {
 
   readonly lowPercentage: number;
 
+  // 매수 주문 시각(Order.orderedAt) - priceAt60s(매수 60초 뒤 관측가) 카운트 기준점.
+  readonly orderedAt: Date;
+
   state: PositionState = 'checking';
 
   sellAmtHigh = 0;
@@ -77,13 +81,17 @@ export class PositionWatcher {
   // 힘이 빠진 것"이라는 가정이 한번 성립하면 그걸로 충분하다는 판단).
   profitSince?: Date;
 
+  // 매수(orderedAt) 60초 뒤 관측가 - "진입 직후 계속 오르는 중이었는지" 회고용 데이터.
+  // 한번 캡처되면 다시 안 바뀐다. 60초 전에 포지션이 끝나면 계속 undefined.
+  priceAt60s?: number;
+
   stateMessage = '';
 
   private onDone?: OnDone;
 
   private activeListener?: BalanceListener;
 
-  private constructor(id: number, sessionId: number, orderId: number, code: string, name: string | null, highPercentage: number, lowPercentage: number, onDone?: OnDone) {
+  private constructor(id: number, sessionId: number, orderId: number, code: string, name: string | null, highPercentage: number, lowPercentage: number, orderedAt: Date, onDone?: OnDone) {
     this.id = id;
     this.sessionId = sessionId;
     this.orderId = orderId;
@@ -91,26 +99,28 @@ export class PositionWatcher {
     this.name = name;
     this.highPercentage = highPercentage;
     this.lowPercentage = lowPercentage;
+    this.orderedAt = orderedAt;
     this.onDone = onDone;
   }
 
   // 신규 매수 직후 호출 (scanner.ts). 매수 시점의 %를 스냅샷으로 저장해서 도중에
   // 설정이 바뀌거나 서버가 재시작돼도 이 포지션은 원래 기준 그대로 동작한다.
-  static async start(sessionId: number, orderId: number, code: string, name: string | null | undefined, highPercentage: number, lowPercentage: number, onDone?: OnDone) {
+  static async start(sessionId: number, orderId: number, code: string, name: string | null | undefined, highPercentage: number, lowPercentage: number, orderedAt: Date, onDone?: OnDone) {
     const row = await getPrisma().positionWatcher.create({ data: { orderId, code, highPercentage, lowPercentage, state: 'checking' } });
-    const watcher = new PositionWatcher(row.id, sessionId, orderId, code, name ?? null, highPercentage, lowPercentage, onDone);
+    const watcher = new PositionWatcher(row.id, sessionId, orderId, code, name ?? null, highPercentage, lowPercentage, orderedAt, onDone);
     watcher.checking();
     return watcher;
   }
 
   // 서버 재시작 후 미종료 watcher 복구 (runtime.ts)
-  static resume(row: ResumeRow, sessionId: number, name: string | null, onDone?: OnDone) {
-    const watcher = new PositionWatcher(row.id, sessionId, row.orderId, row.code, name, row.highPercentage, row.lowPercentage, onDone);
+  static resume(row: ResumeRow, sessionId: number, name: string | null, orderedAt: Date, onDone?: OnDone) {
+    const watcher = new PositionWatcher(row.id, sessionId, row.orderId, row.code, name, row.highPercentage, row.lowPercentage, orderedAt, onDone);
     watcher.sellAmtHigh = row.sellAmtHigh ? Number(row.sellAmtHigh) : 0;
     watcher.sellAmtLow = row.sellAmtLow ? Number(row.sellAmtLow) : 0;
     watcher.peakPrice = row.peakPrice ? Number(row.peakPrice) : 0;
     watcher.highOrLow = (row.highOrLow as 'high' | 'low' | 'timeout' | '') || '';
     watcher.profitSince = row.profitSince ?? undefined;
+    watcher.priceAt60s = row.priceAt60s ? Number(row.priceAt60s) : undefined;
     watcher.entryPrice = watcher.sellAmtHigh > 0 ? watcher.sellAmtHigh / (1 + watcher.highPercentage / 100) : 0;
 
     if (row.state === 'sell_waiting') {
@@ -186,7 +196,7 @@ export class PositionWatcher {
     return `종목:[${this.code}] 처리상태:[${this.state}] ${this.stateMessage} ${target}`;
   }
 
-  private persist(fields: Partial<{ state: PositionState; sellAmtHigh: number; sellAmtLow: number; peakPrice: number; highOrLow: string; stateMessage: string; sellPrice: number; sellQty: number; pnl: number; kospiDeltaAtSell: number; profitSince: Date; closedAt: Date; }>) {
+  private persist(fields: Partial<{ state: PositionState; sellAmtHigh: number; sellAmtLow: number; peakPrice: number; highOrLow: string; stateMessage: string; sellPrice: number; sellQty: number; pnl: number; kospiDeltaAtSell: number; profitSince: Date; priceAt60s: number; closedAt: Date; }>) {
     return getPrisma().positionWatcher.update({ where: { id: this.id }, data: fields }).catch((error) => {
       console.error(`[position-watcher:${this.code}] persist failed`, error);
     });
@@ -248,6 +258,11 @@ export class PositionWatcher {
       if (!this.profitSince && this.entryPrice > 0 && price >= this.entryPrice) {
         this.profitSince = new Date();
         this.persist({ profitSince: this.profitSince });
+      }
+
+      if (this.priceAt60s === undefined && Date.now() - this.orderedAt.getTime() >= 60 * 1000) {
+        this.priceAt60s = price;
+        this.persist({ priceAt60s: price });
       }
 
       const checkHigh = price >= highAmt;
