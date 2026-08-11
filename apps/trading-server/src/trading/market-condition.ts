@@ -13,6 +13,11 @@ const TICK_THRESHOLD_PERCENT = 0.02;
 // 전환됐다(짧게는 2분 간격) - 매수/매도 게이트가 그 빈도로 계속 뒤집히면 신호로서 의미가
 // 없다. TICK_THRESHOLD_PERCENT는 그대로 두고 확인 틱수만 늘려서 더 지속적인 추세만 반영한다.
 const CONFIRM_TICKS = 4;
+// 전일종가 대비 이 값(%)을 초과해서 상승 중이면 틱 확인(CONFIRM_TICKS) 없이 즉시 허용한다
+// (2026-08-11). 틱 기반 확인은 "아직 방향이 안 잡힌 구간"을 걸러내려는 목적인데, 코스피가
+// 이미 하루 3% 넘게 오른 상태라면 그 자체로 방향이 충분히 확인된 것이므로 매 틱마다 다시
+// 확인받을 필요가 없다 - 강한 상승장에서 매수 기회를 놓치지 않기 위한 우회 경로.
+const STRONG_BULL_PRDY_PERCENT = 3;
 
 // 최초 조회 전/세션 시작 시 기본값 - 허용(true)이 아니라 중단(false)으로 시작한다
 // (2026-08-10, true->false로 변경): 장 시작하자마자 확인된 추세 없이 바로 스캔을 허용해버리면
@@ -31,6 +36,7 @@ async function refresh() {
   try {
     const item = await fetchIndexPrice(KOSPI_ISCD);
     const price = Number(item?.bstp_nmix_prpr);
+    const prdyCtrt = Number(item?.bstp_nmix_prdy_ctrt);
     if (!Number.isFinite(price)) {
       console.error('[market-condition] invalid bstp_nmix_prpr in response - keeping previous state', item);
       return;
@@ -55,9 +61,19 @@ async function refresh() {
       pendingCount = 1;
     }
 
-    console.log(`[market-condition] KOSPI ${price} (틱Δ ${delta.toFixed(3)}%, ${tickBullish ? '매수세' : '약세'} 연속 ${pendingCount}회) 현재상태=${bullish ? '허용' : '중단'}`);
+    const strongBull = Number.isFinite(prdyCtrt) && prdyCtrt > STRONG_BULL_PRDY_PERCENT;
 
-    if (pendingCount >= CONFIRM_TICKS && tickBullish !== bullish) {
+    console.log(`[market-condition] KOSPI ${price} (틱Δ ${delta.toFixed(3)}%, 전일대비 ${Number.isFinite(prdyCtrt) ? prdyCtrt.toFixed(2) : '?'}%, ${tickBullish ? '매수세' : '약세'} 연속 ${pendingCount}회${strongBull ? ', 강한 상승장' : ''}) 현재상태=${bullish ? '허용' : '중단'}`);
+
+    if (strongBull && !bullish) {
+      bullish = true;
+      console.log(`[market-condition] 상태 전환 -> 허용(재개) (전일대비 +${prdyCtrt.toFixed(2)}% 강한 상승장, 틱 확인 생략)`);
+      await sendDiscordMessage({
+        title: '🟢 스캔 재개',
+        description: `코스피 전일대비 +${prdyCtrt.toFixed(2)}% (강한 상승장, 틱 확인 없이 즉시 재개) - 신규 스캔 재개`,
+        color: DISCORD_COLOR.green,
+      });
+    } else if (!strongBull && pendingCount >= CONFIRM_TICKS && tickBullish !== bullish) {
       bullish = tickBullish;
       console.log(`[market-condition] 상태 전환 -> ${bullish ? '허용(재개)' : '중단'}`);
       await sendDiscordMessage({
