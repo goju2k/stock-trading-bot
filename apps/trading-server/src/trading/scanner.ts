@@ -11,7 +11,7 @@ import { getPrisma } from '../lib/prisma';
 let timer: NodeJS.Timeout | undefined;
 
 // 기존 services/trading/src/hooks/kis-catch-stock-hook.tsx(useKisCatchStock) 포팅.
-// refreshRateMs 간격으로 거래대금순위를 조회해서, 오늘 아직 안 산/안 지나친 종목 중
+// refreshRateMs 간격으로 거래증가율 순위를 조회해서, 오늘 아직 안 산/안 지나친 종목 중
 // 조건(isTargetRow + 외국인/기관 순매수)에 맞는 첫 종목 1개만 매수한다. 조회된 종목은 전부
 // 오늘자 pass 처리해서 "처음 리스트업 되는 매물만 잡는다"는 기존 동작을 그대로 유지한다.
 async function tick(sessionId: number) {
