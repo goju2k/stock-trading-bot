@@ -112,7 +112,7 @@ export async function executeBuy({ sessionId, config, code, name, price, sourceS
       payload: { qty, price, sourceStrategy },
     });
 
-    const watcher = await PositionWatcher.start(sessionId, order.id, code, name, config.highPercentage, config.lowPercentage, order.orderedAt, (w) => TradingRuntime.remove(w.code));
+    const watcher = await PositionWatcher.start(sessionId, order.id, code, name, sourceStrategy, config.highPercentage, config.lowPercentage, order.orderedAt, (w) => TradingRuntime.remove(w.code));
     TradingRuntime.add(watcher);
   } finally {
     // 성공/스킵/실패 무관하게 항상 해제 - 스킵된 경우 다른 전략이 나중에 다시 시도할 수 있는
