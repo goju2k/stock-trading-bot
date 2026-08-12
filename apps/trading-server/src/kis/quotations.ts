@@ -21,8 +21,14 @@ export async function fetchVolumeRank(filter: VolumeRankFilter) {
         FID_INPUT_ISCD: '0001',
         FID_DIV_CLS_CODE: '0',
         // 0:평균거래량 1:거래증가율 2:평균거래회전율 3:거래금액순 4:평균거래금액회전율
-        // 순수 거래량 급증(1) 대신 실제 돈이 몰리는 거래대금순(3)으로 스캔 기준 교체.
-        FID_BLNG_CLS_CODE: '3',
+        // 3(거래대금순) -> 1(거래증가율), 2026-08-13: 최초 버전(1)에서 "실제 돈이 몰리는
+        // 종목을 잡자"는 취지로 3으로 바꿨었는데(2026-08-01), 그 뒤 거래량 실적을 보니
+        // volume_rank가 하루 0~3건밖에 안 잡혔다(3은 대형주 위주라 targetUpRating 7% 필터를
+        // 잘 못 넘김, vi_release와 겹치는 종목도 대부분 vi_release가 먼저 채감). VI는 이미
+        // ±10% 움직인 뒤에야 발동하므로, 거래증가율 기준으로 그 전에 먼저 잡으면 vi_release보다
+        // 더 싼 가격에 진입할 수 있다는 판단 - 같은 종목 동시매수는 execute-buy.ts의 buyLocks로
+        // 이미 막혀있어 두 전략이 경쟁해도 안전하다.
+        FID_BLNG_CLS_CODE: '1',
         FID_TRGT_CLS_CODE: '111111111',
         FID_TRGT_EXLS_CLS_CODE: '000000',
         FID_INPUT_DATE_1: '',
