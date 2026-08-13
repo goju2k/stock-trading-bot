@@ -1,6 +1,5 @@
 import { executeBuy } from './execute-buy';
 import { isForeignInstitutionNetBuy } from './foreign-institution-cache';
-import { isMarketBullish } from './market-condition';
 import { getOrderedCodesToday } from './session-orders';
 import { isTargetRow } from './target-filter';
 
@@ -14,17 +13,15 @@ let timer: NodeJS.Timeout | undefined;
 // refreshRateMs 간격으로 거래증가율 순위를 조회해서, 오늘 아직 안 산/안 지나친 종목 중
 // 조건(isTargetRow + 외국인/기관 순매수)에 맞는 첫 종목 1개만 매수한다. 조회된 종목은 전부
 // 오늘자 pass 처리해서 "처음 리스트업 되는 매물만 잡는다"는 기존 동작을 그대로 유지한다.
+// market-condition.ts(isMarketBullish) 게이트는 2026-08-13 제거 - vi_release를 끄고
+// scanner.ts 위주로 전환하면서, 아직 신뢰도가 안 검증된 틱 기반 필터(같은 날 코스피 되돌림을
+// 못 거른 사고 있었음)에 매수 여부를 계속 얹어두지 않기로 함. market-condition 캐시 자체는
+// 계속 돌아서 kospiDeltaAtBuy 등 회고용 데이터는 그대로 쌓인다.
 async function tick(sessionId: number) {
   const config = await getTradingConfig();
   const prisma = getPrisma();
 
   if (!config.autoTradingEnabled) {
-    return config;
-  }
-
-  // 코스피가 하락중이면 신규 스캔을 멈춘다 - market-condition.ts 참고 (롱온리 모멘텀 전략이라
-  // 하락장에서 개별 종목 강세도 같이 끌려갈 확률이 높다, 2026-08-06 확인).
-  if (!isMarketBullish()) {
     return config;
   }
 

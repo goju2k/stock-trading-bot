@@ -16,9 +16,11 @@ export async function fetchVolumeRank(filter: VolumeRankFilter) {
       params: {
         FID_COND_MRKT_DIV_CODE: 'J',
         FID_COND_SCR_DIV_CODE: '20171',
-        // 0000(전체) -> 0001(코스피 업종코드): 코스피 종목으로 매수 대상을 한정하는 실험
-        // (2026-08-07, market-condition.ts의 틱 측정 기준 자체가 코스피라 대상도 맞춘다).
-        FID_INPUT_ISCD: '0001',
+        // 0001(코스피 전용, 2026-08-07 실험) -> 0000(전체), 2026-08-13: vi_release를 끄고
+        // scanner.ts(거래증가율) 위주로 가면서 원본(kis-catch-stock-hook.tsx) 설정으로 복귀 -
+        // 라이브 비교 결과 코스피 한정시 필터 통과 후보가 거의 절반(14개->8개)으로 줄어있었다
+        // (코스닥 소형주가 거래증가율 상위에 많이 걸리는데 전부 제외됐었음).
+        FID_INPUT_ISCD: '0000',
         FID_DIV_CLS_CODE: '0',
         // 0:평균거래량 1:거래증가율 2:평균거래회전율 3:거래금액순 4:평균거래금액회전율
         // 3(거래대금순) -> 1(거래증가율), 2026-08-13: 최초 버전(1)에서 "실제 돈이 몰리는
