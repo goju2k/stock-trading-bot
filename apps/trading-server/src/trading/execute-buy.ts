@@ -3,10 +3,11 @@ import { TradingConfig } from '@prisma/client';
 import { classifyHeadline } from './headline-keywords';
 import { logTradeEvent } from './log-trade-event';
 import { getMarketTickDelta } from './market-condition';
+import { searchGoogleNews } from './news-search';
 import { PositionWatcher } from './position-watcher';
 import { TradingRuntime } from './runtime';
 
-import { fetchNewsTitle, inquireBalance, placeMarketOrder } from '../kis';
+import { inquireBalance, placeMarketOrder } from '../kis';
 import { getPrisma } from '../lib/prisma';
 
 export interface ExecuteBuyInput {
@@ -57,21 +58,20 @@ function reserveBuyLock(code: string): boolean {
 
 // 매수 자체를 막지 않기 위해 executeBuy()에서 await 없이(fire-and-forget) 호출한다 - 뉴스
 // 조회가 늦거나 실패해도 매수/매도 흐름에는 전혀 영향이 없다(2026-08-14, 회고용 데이터).
-// 이 종목을 언급한 가장 최근 뉴스 제목 하나를 찾아서 호재/악재 키워드 매칭 결과와 함께 저장 -
-// 관련 뉴스가 없거나 조회 실패시 조용히 아무것도 안 남긴다(이미 null인 컬럼 그대로 둠).
-async function attachHeadline(orderId: number, code: string) {
+// KIS news-title 대신 구글 뉴스 RSS(news-search.ts)를 종목명으로 검색 - KIS 쪽은 실제
+// 언론기사보다 KIS 자체생성 시황요약이 대부분이라 신호가 약했다(같은 날 23건 백필 테스트에서
+// 22건이 neutral로 나옴). 종목명 검색 결과 중 가장 최근 항목 하나를 키워드 매칭해서 저장 -
+// 검색 결과가 없거나 조회 실패시 조용히 아무것도 안 남긴다(이미 null인 컬럼 그대로 둠).
+async function attachHeadline(orderId: number, code: string, name?: string) {
   try {
-    const items = await fetchNewsTitle(code);
-    const matched = items.find((item) => [
-      item.iscd1, item.iscd2, item.iscd3, item.iscd4, item.iscd5,
-      item.iscd6, item.iscd7, item.iscd8, item.iscd9, item.iscd10,
-    ].includes(code));
-    if (!matched) return;
+    const items = await searchGoogleNews(name || code);
+    const [ latest ] = items;
+    if (!latest) return;
 
-    const { sentiment, keyword } = classifyHeadline(matched.hts_pbnt_titl_cntt);
+    const { sentiment, keyword } = classifyHeadline(latest.title);
     await getPrisma().order.update({
       where: { id: orderId },
-      data: { headline: matched.hts_pbnt_titl_cntt, headlineSentiment: sentiment, headlineKeyword: keyword },
+      data: { headline: latest.title, headlineSentiment: sentiment, headlineKeyword: keyword },
     });
   } catch (error) {
     console.error(`[execute-buy] headline fetch failed for ${code}`, error);
@@ -139,7 +139,7 @@ export async function executeBuy({ sessionId, config, code, name, price, sourceS
     const watcher = await PositionWatcher.start(sessionId, order.id, code, name, sourceStrategy, config.highPercentage, config.lowPercentage, order.orderedAt, (w) => TradingRuntime.remove(w.code));
     TradingRuntime.add(watcher);
 
-    attachHeadline(order.id, code);
+    attachHeadline(order.id, code, name);
   } finally {
     // 성공/스킵/실패 무관하게 항상 해제 - 스킵된 경우 다른 전략이 나중에 다시 시도할 수 있는
     // 기존 동작(각 스캐너 자신의 passedCodes/viActedCodes 풀만 스킵을 기억)은 그대로 둔다.

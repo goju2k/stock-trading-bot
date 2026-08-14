@@ -102,25 +102,3 @@ export interface IndexPriceItem {
   prdy_vrss_sign: string; // 전일 대비 부호 (1:상한 2:상승 3:보합 4:하락 5:하한)
   bstp_nmix_prdy_ctrt: string; // 업종 지수 전일 대비율 (%)
 }
-
-// [국내주식] 종목정보 > 종합 시황/공시(제목) [국내주식-141]. 매수 시점 헤드라인 회고용
-// (headline-keywords.ts). iscd1~iscd10는 이 뉴스가 언급하는 종목코드(최대 10개) - 응답 자체가
-// FID_INPUT_ISCD로 서버 사이드에서 깔끔하게 필터되지 않아서, 클라이언트에서 iscd1..iscd10 중
-// 원하는 코드가 있는지 직접 확인해야 한다(2026-08-14 라이브 확인).
-export interface NewsTitleItem {
-  cntt_usiq_srno: string; // 컨텐츠 일련번호
-  data_dt: string; // 작성일자 (YYYYMMDD)
-  data_tm: string; // 작성시간 (HHMMSS)
-  hts_pbnt_titl_cntt: string; // 뉴스 제목
-  dorg: string; // 언론사
-  iscd1: string;
-  iscd2: string;
-  iscd3: string;
-  iscd4: string;
-  iscd5: string;
-  iscd6: string;
-  iscd7: string;
-  iscd8: string;
-  iscd9: string;
-  iscd10: string;
-}
