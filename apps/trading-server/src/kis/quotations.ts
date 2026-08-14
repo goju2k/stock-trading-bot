@@ -1,6 +1,6 @@
 import { assertKisSuccess, getKisClient } from './client';
 import { COMMON_TR_ID } from './tr-id';
-import { BusinessDayItem, FluctuationItem, ForeignInstitutionItem, IndexPriceItem, KisResponse, ViStatusItem, VolumeRankItem } from './types';
+import { BusinessDayItem, FluctuationItem, ForeignInstitutionItem, IndexPriceItem, KisResponse, NewsTitleItem, ViStatusItem, VolumeRankItem } from './types';
 
 export interface VolumeRankFilter {
   minPrice: number;
@@ -140,6 +140,31 @@ export async function fetchIndexPrice(iscd: string) {
   );
   assertKisSuccess(res.data);
   return res.data.output;
+}
+
+// 종목 관련 최근 뉴스/공시 제목 목록. FID_INPUT_ISCD로 넘겨도 응답이 그 종목만 깔끔하게
+// 걸러주지 않아서(2026-08-14 라이브 확인 - 다른 종목 기사도 섞여 나옴), 호출부에서 반환된
+// 각 항목의 iscd1~iscd10을 직접 확인해서 원하는 코드가 포함된 것만 골라 써야 한다.
+export async function fetchNewsTitle(code: string) {
+  const client = await getKisClient();
+  const res = await client.get<KisResponse<NewsTitleItem[]>>(
+    'uapi/domestic-stock/v1/quotations/news-title',
+    {
+      params: {
+        FID_NEWS_OFER_ENTP_CODE: '',
+        FID_COND_MRKT_CLS_CODE: 'J',
+        FID_INPUT_ISCD: code,
+        FID_TITL_CNTT: '',
+        FID_INPUT_DATE_1: '',
+        FID_INPUT_HOUR_1: '',
+        FID_RANK_SORT_CLS_CODE: '',
+        FID_INPUT_SRNO: '',
+      },
+      headers: { tr_id: COMMON_TR_ID.newsTitle },
+    },
+  );
+  assertKisSuccess(res.data);
+  return res.data.output || [];
 }
 
 // 기준일자(YYYYMMDD)의 개장여부 조회.

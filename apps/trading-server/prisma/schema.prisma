@@ -126,6 +126,11 @@ model Order {
   // 매수 체결 시점 코스피 틱간 순간변화율(market-condition.ts) 스냅샷 - 매수 순간의 시장
   // 상태를 나중에 회고하기 위한 기록용. 캐시가 아직 첫 틱을 못 돈 경우 null.
   kospiDeltaAtBuy Float?
+  // 매수 직후(비동기) KIS 뉴스제목 조회로 채워지는 회고용 필드(2026-08-14, headline-keywords.ts) -
+  // 아직 매수/매도 조건으로는 안 쓴다. 관련 뉴스가 없거나 조회 실패시 전부 null로 남는다.
+  headline          String?
+  headlineSentiment String?
+  headlineKeyword   String?
   orderedAt DateTime @default(now())
 
   session         TradingSession   @relation(fields: [sessionId], references: [id])
