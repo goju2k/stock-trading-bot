@@ -36,6 +36,12 @@ export interface ResumeRow {
 // 일단 승률 자체를 높이는 방향(뉴스/재료 분석 등)을 먼저 연구하기로 하고 이 값은 러프하게만
 // 조정 - 트레일링 손절선(sellAmtLow)에 이미 걸려서 손실권으로 내려간 뒤에는 이 타임아웃을
 // 적용하지 않는다 - 그건 여전히 트레일링 손절의 몫이다.
+// 2026-08-14 우선 비활성화(PROFIT_TIMEOUT_ENABLED=false): 익절도 트레일링으로 바뀌면서
+// "익절선을 못 뚫으면 어차피 힘빠진 것"이라는 이 타임아웃의 전제와 겹치는 부분이 생겼고,
+// 실제로 타임아웃이 큰 상승을 조기 종료시킨 사례(2026-08-13 뉴로메카: 24,050원에 타임아웃
+// 정리했는데 당일 고가 27,500원)가 반복 확인돼서 재검토가 필요한 상태 - 로직/상수는 남겨두고
+// 나중에 다시 켤 수 있게 플래그로만 끈다.
+const PROFIT_TIMEOUT_ENABLED = false;
 const PROFIT_TIMEOUT_MS = 10 * 60 * 1000;
 
 // 기존 shared/states/global/.../trading-strategy.ts(TradingStrategy) +
@@ -223,8 +229,11 @@ export class PositionWatcher {
     BalancePoller.addListener(listener);
   }
 
-  // 트레일링 스탑: high(익절)는 매수가 기준 고정, low(손절)는 진입 이후 관측된 고점(peakPrice)
-  // 기준으로 매 틱마다 다시 계산해서 신고점을 찍을수록 손절선도 같이 끌어올린다(내려가지는 않음).
+  // 손절(low)은 진입 이후 관측된 고점(peakPrice) 기준으로 매 틱마다 다시 계산해서 신고점을
+  // 찍을수록 손절선도 같이 끌어올린다(내려가지는 않음). 익절(high)도 2026-08-14부터 같은
+  // 방식의 트레일링 - highAmt(+3%)는 매수 시점에 고정된 "최초 도달선"일 뿐이고, 거기 한번
+  // 도달한 뒤로는 즉시 팔지 않고 고점을 계속 갱신하며 들고 가다가 고점에서 한 틱이라도
+  // 꺾이면 그 즉시 매도한다(자세한 조건은 아래 리스너의 reachedTarget/checkHigh 참고).
   private watchForSell(holding?: InquireBalanceItem) {
     this.state = 'watching_for_sell';
     this.stateMessage = '매도 체크중';
@@ -270,11 +279,17 @@ export class PositionWatcher {
         this.persist({ priceAt60s: price });
       }
 
-      const checkHigh = price >= highAmt;
+      // 익절도 2026-08-14부터 트레일링: highAmt(+3%)에 처음 도달한 뒤에는 그 자리에서 바로
+      // 팔지 않고 고점(peakPrice)을 계속 갱신하며 들고 가다가, 고점 대비 단 한 틱이라도
+      // 꺾이면(price < peakPrice) 즉시 매도한다 - peakPrice가 highAmt 이상으로 한번 올라가면
+      // 절대 다시 안 내려가므로(위 트레일링 로직) reachedTarget은 한번 true가 되면 계속 true.
+      const reachedTarget = this.peakPrice >= highAmt;
+      const checkHigh = reachedTarget && price < this.peakPrice;
       const checkLow = price <= this.sellAmtLow;
       // 익절권 진입 후 PROFIT_TIMEOUT_MS 안에 익절선을 못 뚫었으면 지금 가격 그대로 정리한다.
-      // 이미 손실권(진입가 미만)으로 내려간 경우는 트레일링 손절(checkLow)의 몫이라 제외한다.
-      const checkTimeout = !checkHigh && !checkLow && !!this.profitSince
+      // 이미 손실권(진입가 미만)으로 내려간 경우(checkLow)나 이미 익절선을 넘어서 트레일링 중인
+      // 경우(reachedTarget)는 각각 트레일링 손절/트레일링 익절의 몫이라 제외한다.
+      const checkTimeout = PROFIT_TIMEOUT_ENABLED && !reachedTarget && !checkLow && !!this.profitSince
         && Date.now() - this.profitSince.getTime() >= PROFIT_TIMEOUT_MS
         && price >= this.entryPrice;
       if (!checkHigh && !checkLow && !checkTimeout) return;
