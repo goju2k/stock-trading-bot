@@ -1,7 +1,7 @@
 import { getTradingConfig } from '../config/trading-config';
 import { fetchBusinessDay, inquireBalance, placeMarketOrder } from '../kis';
 import { getKisEnvConfig } from '../kis/env';
-import { todayDateOnly, todayYYYYMMDD } from '../lib/date';
+import { nowHHMMSS, todayDateOnly, todayYYYYMMDD } from '../lib/date';
 import { getPrisma } from '../lib/prisma';
 import {
   TradingRuntime,
@@ -175,6 +175,28 @@ export async function openTodaySession() {
 
   console.log(`[cron] session opened for ${sessionDate.toISOString().slice(0, 10)} (businessDay=${isBusinessDay}, env=${env})`);
   return session;
+}
+
+// 09:00 정시 오픈이 실패했거나 그 시각에 프로세스가 안 떠 있었던 경우의 보완용 재시도
+// (2026-08-19 사고: KIS chk-holiday 오류로 openTodaySession 실패 → runSafely가 로그만
+// 남기고 조용히 넘어감 → 재시작해도 resumeTodaySessionIfNeeded()는 "이미 열린 세션 복구"만
+// 하지 새로 열지는 않아서 그날 세션이 통째로 안 열림). schedule.ts에서 09:05~14:55 5분
+// 간격으로 호출 - 먼저 DB만 가볍게 확인해서 이미 열려있으면(openedAt 존재) 바로 리턴하므로
+// 정상적인 날엔 매 호출이 KIS를 부르지 않는다. 15:10 이후엔 남은 장이 너무 짧아 의미가
+// 없어서 시도하지 않는다.
+export async function ensureTodaySessionOpen() {
+  if (nowHHMMSS() >= '151000') {
+    return;
+  }
+
+  const sessionDate = todayDateOnly();
+  const session = await getPrisma().tradingSession.findUnique({ where: { sessionDate } });
+  if (session?.openedAt) {
+    return;
+  }
+
+  console.log('[cron] today session not open yet - attempting catch-up open');
+  await openTodaySession();
 }
 
 // 15:15 평일 트리거 (정규장 마감 15:30 15분 전). 신규 스캔 중단 + 잔여 포지션 전량 강제청산.
