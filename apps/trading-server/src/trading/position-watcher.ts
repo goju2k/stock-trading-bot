@@ -23,6 +23,7 @@ export interface ResumeRow {
   highOrLow: string | null;
   profitSince: Date | null;
   priceAt60s: unknown;
+  firstTickPrice: unknown;
 }
 
 // 익절권(진입가 이상)에 처음 들어선 뒤 이 시간 안에 익절선을 못 뚫으면 그 시점 가격 그대로
@@ -84,7 +85,13 @@ export class PositionWatcher {
   // sellAmtHigh/highPercentage로부터 역산 가능해서 재시작 복구(resume) 시 그렇게 채운다.
   entryPrice = 0;
 
-  highOrLow: 'high' | 'low' | 'timeout' | '' = '';
+  highOrLow: 'high' | 'low' | 'timeout' | 'quick_stop' | '' = '';
+
+  // 매수 후 관측되는 첫 틱에서 진입가 밑으로 이미 꺾여있는지 딱 한 번만 확인하기 위한 플래그
+  // (2026-08-20) - "거래대금 스캐너의 핵심은 고점 찍기 전에 올라타는 것인데, 산 직후 바로
+  // 꺾인다는 건 사실 고점에 물렸다는 신호"라는 가정. resume() 시 watching_for_sell 상태로
+  // 복구되는 경우는 이미 진짜 첫 틱을 한참 지난 뒤라 true로 시작(재적용 안 함).
+  private firstTickChecked = false;
 
   // 진입가 이상으로 처음 올라선 시각 - PROFIT_TIMEOUT_MS 카운트 시작점. 한번 세팅되면
   // 이후 다시 진입가 밑으로 내려가도 리셋하지 않는다("5분 안에 익절선을 못 뚫으면 이미
@@ -94,6 +101,10 @@ export class PositionWatcher {
   // 매수(orderedAt) 60초 뒤 관측가 - "진입 직후 계속 오르는 중이었는지" 회고용 데이터.
   // 한번 캡처되면 다시 안 바뀐다. 60초 전에 포지션이 끝나면 계속 undefined.
   priceAt60s?: number;
+
+  // 매수 후 첫 관측 틱의 가격 - quick_stop 판단에 쓰는 값을 그대로 회고용으로도 영속화한다
+  // (2026-08-20). 등락률은 entryPrice 대비로 조회 시점에 계산.
+  firstTickPrice?: number;
 
   stateMessage = '';
 
@@ -129,10 +140,13 @@ export class PositionWatcher {
     watcher.sellAmtHigh = row.sellAmtHigh ? Number(row.sellAmtHigh) : 0;
     watcher.sellAmtLow = row.sellAmtLow ? Number(row.sellAmtLow) : 0;
     watcher.peakPrice = row.peakPrice ? Number(row.peakPrice) : 0;
-    watcher.highOrLow = (row.highOrLow as 'high' | 'low' | 'timeout' | '') || '';
+    watcher.highOrLow = (row.highOrLow as 'high' | 'low' | 'timeout' | 'quick_stop' | '') || '';
     watcher.profitSince = row.profitSince ?? undefined;
     watcher.priceAt60s = row.priceAt60s ? Number(row.priceAt60s) : undefined;
+    watcher.firstTickPrice = row.firstTickPrice ? Number(row.firstTickPrice) : undefined;
     watcher.entryPrice = watcher.sellAmtHigh > 0 ? watcher.sellAmtHigh / (1 + watcher.highPercentage / 100) : 0;
+    // watching_for_sell로 복구되는 경우 이미 진짜 첫 틱을 한참 지난 뒤이므로 재확인하지 않는다.
+    watcher.firstTickChecked = row.state === 'watching_for_sell';
 
     if (row.state === 'sell_waiting') {
       watcher.sellWaiting();
@@ -207,7 +221,7 @@ export class PositionWatcher {
     return `종목:[${this.code}] 처리상태:[${this.state}] ${this.stateMessage} ${target}`;
   }
 
-  private persist(fields: Partial<{ state: PositionState; sellAmtHigh: number; sellAmtLow: number; peakPrice: number; highOrLow: string; stateMessage: string; sellPrice: number; sellQty: number; pnl: number; kospiDeltaAtSell: number; profitSince: Date; priceAt60s: number; closedAt: Date; }>) {
+  private persist(fields: Partial<{ state: PositionState; sellAmtHigh: number; sellAmtLow: number; peakPrice: number; highOrLow: string; stateMessage: string; sellPrice: number; sellQty: number; pnl: number; kospiDeltaAtSell: number; profitSince: Date; priceAt60s: number; firstTickPrice: number; closedAt: Date; }>) {
     return getPrisma().positionWatcher.update({ where: { id: this.id }, data: fields }).catch((error) => {
       console.error(`[position-watcher:${this.code}] persist failed`, error);
     });
@@ -263,6 +277,22 @@ export class PositionWatcher {
 
       const price = Number(current.prpr);
 
+      // 매수 후 첫 관측 틱에 이미 진입가 밑이면 "고점에 물렸다"고 보고 그 자리에서 바로
+      // 정리한다 - 거래증가율 스캐너의 전제 자체가 "고점 찍기 전에 올라타는 것"이라, 사자마자
+      // 바로 꺾이는 건 이미 늦게 들어갔다는 신호로 본다(2026-08-20). 이후 틱에는 다시
+      // 적용하지 않는다 - 트레일링 손절(checkLow)의 넓은 -4% 구간이 그 뒤를 담당한다.
+      const isFirstTick = !this.firstTickChecked;
+      this.firstTickChecked = true;
+      const checkQuickReversal = isFirstTick && this.entryPrice > 0 && price < this.entryPrice;
+
+      // quick_stop 발동 여부와 무관하게 첫 틱 가격 자체는 항상 회고용으로 남긴다 - 다음 전략
+      // 튜닝 때 등락률 분포를 보려면 quick_stop이 안 걸린(=첫 틱이 진입가 이상이었던) 케이스도
+      // 필요하다(2026-08-20).
+      if (isFirstTick) {
+        this.firstTickPrice = price;
+        this.persist({ firstTickPrice: price });
+      }
+
       if (price > this.peakPrice) {
         this.peakPrice = price;
         this.sellAmtLow = Number((this.peakPrice - (this.peakPrice * this.lowPercentage) / 100).toFixed(0));
@@ -292,9 +322,11 @@ export class PositionWatcher {
       const checkTimeout = PROFIT_TIMEOUT_ENABLED && !reachedTarget && !checkLow && !!this.profitSince
         && Date.now() - this.profitSince.getTime() >= PROFIT_TIMEOUT_MS
         && price >= this.entryPrice;
-      if (!checkHigh && !checkLow && !checkTimeout) return;
+      if (!checkQuickReversal && !checkHigh && !checkLow && !checkTimeout) return;
 
-      if (checkHigh) {
+      if (checkQuickReversal) {
+        this.highOrLow = 'quick_stop';
+      } else if (checkHigh) {
         this.highOrLow = 'high';
       } else if (checkLow) {
         this.highOrLow = 'low';
