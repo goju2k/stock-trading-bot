@@ -3,6 +3,7 @@ import { fetchBusinessDay, inquireBalance, placeMarketOrder } from '../kis';
 import { getKisEnvConfig } from '../kis/env';
 import { nowHHMMSS, todayDateOnly, todayYYYYMMDD } from '../lib/date';
 import { getPrisma } from '../lib/prisma';
+import { DISCORD_COLOR, sendDiscordMessage } from '../notify/discord';
 import {
   TradingRuntime,
   isScannerRunning,
@@ -19,6 +20,12 @@ import {
   stopScanner,
   stopViScanner,
 } from '../trading';
+
+// 신규 진입(매수) 로직만 끊는 시각 - 15:15(강제청산)/15:30(마감)보다 앞선다. 15:15 강제청산까지
+// 시간이 얼마 안 남은 상태로 매수하면 트레일링 익절/손절이 정상적으로 작동해볼 겨를도 없이
+// 그냥 강제청산으로 끝나는 경우가 잦다(2026-08-21 관찰) - 그래서 매수만 먼저 끊고, 이미 보유
+// 중인 포지션은 평소대로 BalancePoller/PositionWatcher가 계속 관리하다가 15:15에 함께 정리된다.
+export const NEW_ENTRY_CUTOFF_HHMMSS = '143000';
 
 function startAllScanners(sessionId: number) {
   startForeignInstitutionCache();
@@ -199,6 +206,29 @@ export async function ensureTodaySessionOpen() {
   await openTodaySession();
 }
 
+// 14:30 평일 트리거. 신규 진입 스캐너(volume_rank/vi/gap)만 멈추고, market-condition/외국인
+// 캐시는 그대로 둔다 - 15:15까지 남은 포지션의 kospiDeltaAtSell 등 회고용 데이터가 그 사이에도
+// 계속 신선하게 쌓이도록. 보유 포지션의 매도 로직 자체는 이 함수와 무관하게 평소대로 동작한다.
+export async function stopNewEntries() {
+  const sessionDate = todayDateOnly();
+  const session = await getPrisma().tradingSession.findUnique({ where: { sessionDate } });
+  if (!session || !session.openedAt) {
+    console.log('[cron] stopNewEntries skipped - no open session today');
+    return;
+  }
+
+  stopScanner();
+  stopViScanner();
+  stopGapScanner();
+
+  console.log('[cron] new entries stopped for today (14:30 cutoff)');
+  await sendDiscordMessage({
+    title: '🟡 신규 매수 종료',
+    description: '14:30 - 장마감까지 남은 시간이 얼마 없어 신규 매수를 종료합니다. 보유 포지션은 계속 관리됩니다.',
+    color: DISCORD_COLOR.yellow,
+  });
+}
+
 // 15:15 평일 트리거 (정규장 마감 15:30 15분 전). 신규 스캔 중단 + 잔여 포지션 전량 강제청산.
 export async function liquidateTodaySession() {
   const sessionDate = todayDateOnly();
@@ -375,8 +405,11 @@ export async function resumeTodaySessionIfNeeded() {
 
   await resumeOpenWatchers(session.id);
 
+  // 14:30~15:15 사이(신규 진입은 끊겼지만 아직 강제청산 전) 재시작되는 경우, liquidationAt만
+  // 보면 아직 안 걸려있어서 스캐너를 도로 살려버린다 - stopNewEntries()의 14:30 컷오프를
+  // 재시작으로 무력화하지 않도록 같은 시각 기준을 여기서도 확인한다.
   const config = await getTradingConfig();
-  if (config.autoTradingEnabled && !isScannerRunning() && !session.liquidationAt) {
+  if (config.autoTradingEnabled && !isScannerRunning() && !session.liquidationAt && nowHHMMSS() < NEW_ENTRY_CUTOFF_HHMMSS) {
     startAllScanners(session.id);
     console.log(`[cron] scanners resumed for session ${session.id} after restart`);
   }
