@@ -16,10 +16,13 @@ const BOOLEAN_FIELDS = [
   'autoTradingEnabled', 'requireForeignInstitutionNetBuy', 'viStrategyEnabled', 'gapStrategyEnabled',
 ] as const;
 
+// 값이 정해진 문자열(enum) 필드 - 허용 목록에 없는 값은 거부한다.
+const ENUM_FIELDS = { sellStrategy: [ 'trailing', 'tick_down' ] } as const;
+
 // 기존 AdvanceOrder.tsx 설정 화면이 편집하던 필드 그대로. 실거래 금액/비율이라 최소한의
 // 타입/범위 검증만 한다 (zod 등 별도 라이브러리 없이 이 레포 관례대로 손으로 체크).
 function sanitizeConfigInput(body: Record<string, unknown>) {
-  const data: Record<string, number | boolean> = {};
+  const data: Record<string, number | boolean | string> = {};
 
   NUMBER_FIELDS.forEach((field) => {
     if (body[field] === undefined) return;
@@ -38,6 +41,15 @@ function sanitizeConfigInput(body: Record<string, unknown>) {
     data[field] = body[field] as boolean;
   });
 
+  (Object.keys(ENUM_FIELDS) as (keyof typeof ENUM_FIELDS)[]).forEach((field) => {
+    if (body[field] === undefined) return;
+    const allowed: readonly string[] = ENUM_FIELDS[field];
+    if (typeof body[field] !== 'string' || !allowed.includes(body[field] as string)) {
+      throw new Error(`invalid value for ${field}`);
+    }
+    data[field] = body[field] as string;
+  });
+
   return data;
 }
 
@@ -46,7 +58,7 @@ configRouter.get('/', asyncHandler(async (_req, res) => {
 }));
 
 configRouter.put('/', asyncHandler(async (req, res) => {
-  let data: Record<string, number | boolean>;
+  let data: Record<string, number | boolean | string>;
   try {
     data = sanitizeConfigInput(req.body || {});
   } catch (error) {

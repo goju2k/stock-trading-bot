@@ -41,6 +41,16 @@ export function ConfigPage() {
             { label: '조회 주기 (ms)', targetId: 'refreshRateMs', formType: 'input', editable: true, maxLength: 6 },
             { label: '익절 (%)', targetId: 'highPercentage', formType: 'input', editable: true, maxLength: 4 },
             { label: '손절/트레일링폭 (%)', targetId: 'lowPercentage', formType: 'input', editable: true, maxLength: 4 },
+            {
+              label: '매도 전략',
+              targetId: 'sellStrategy',
+              formType: 'select',
+              editable: true,
+              item: [
+                { label: '트레일링 (익절/손절 + quick_stop)', value: 'trailing' },
+                { label: '틱다운 (매틱 하락시 즉시매도, +25% 도달시 즉시매도)', value: 'tick_down' },
+              ],
+            },
             { label: '매수 비율 (장시작 가용현금 대비 %, 최대)', targetId: 'orderAmtPercent', formType: 'input', editable: true, maxLength: 5 },
             { label: '매수 비율 (장시작 가용현금 대비 %, 최소 - 미달시 매수중단)', targetId: 'minOrderAmtPercent', formType: 'input', editable: true, maxLength: 5 },
             { label: '1건당 매수금액 상한 (원)', targetId: 'maxOrderAmt', formType: 'input', editable: true, maxLength: 9 },

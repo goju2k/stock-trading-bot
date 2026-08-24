@@ -15,11 +15,14 @@ export interface StatusResponse {
   } | null;
 }
 
+export type SellStrategy = 'trailing' | 'tick_down';
+
 export interface TradingConfig {
   id: number;
   refreshRateMs: number;
   highPercentage: number;
   lowPercentage: number;
+  sellStrategy: SellStrategy;
   maxOrderAmt: number;
   orderAmtPercent: number;
   minOrderAmtPercent: number;

@@ -136,7 +136,7 @@ export async function executeBuy({ sessionId, config, code, name, price, sourceS
       payload: { qty, price, sourceStrategy },
     });
 
-    const watcher = await PositionWatcher.start(sessionId, order.id, code, name, sourceStrategy, config.highPercentage, config.lowPercentage, order.orderedAt, (w) => TradingRuntime.remove(w.code));
+    const watcher = await PositionWatcher.start(sessionId, order.id, code, name, sourceStrategy, config.highPercentage, config.lowPercentage, config.sellStrategy, order.orderedAt, (w) => TradingRuntime.remove(w.code));
     TradingRuntime.add(watcher);
 
     attachHeadline(order.id, code, name);

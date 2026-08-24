@@ -1,4 +1,4 @@
-import { PositionState } from '@prisma/client';
+import { PositionState, SellStrategy } from '@prisma/client';
 
 import { BalanceListener, BalancePoller } from './balance-poller';
 import { logTradeEvent } from './log-trade-event';
@@ -17,6 +17,7 @@ export interface ResumeRow {
   state: PositionState;
   highPercentage: number;
   lowPercentage: number;
+  sellStrategy: SellStrategy;
   sellAmtHigh: unknown;
   sellAmtLow: unknown;
   peakPrice: unknown;
@@ -45,6 +46,11 @@ export interface ResumeRow {
 const PROFIT_TIMEOUT_ENABLED = false;
 const PROFIT_TIMEOUT_MS = 10 * 60 * 1000;
 
+// tick_down 매도전략(아래 sellStrategy 참고) 전용 안전판 - "계속 상승하는 한 계속 보유"를
+// 무한정 허용하면 급등 후 단 한 틱만에 크게 반납할 위험이 있어서, 진입가 대비 이 값(%) 이상
+// 오르면 하락 여부와 무관하게 그 자리에서 바로 매도한다.
+const TICK_DOWN_CAP_PERCENT = 25;
+
 // 기존 shared/states/global/.../trading-strategy.ts(TradingStrategy) +
 // services/trading/src/trading-strategy/sell-by-percent.ts(SellByPercent) 포팅.
 // 구현체가 하나뿐이라 별도 추상 베이스클래스로 안 나누고 하나로 합쳤다.
@@ -69,6 +75,10 @@ export class PositionWatcher {
 
   readonly lowPercentage: number;
 
+  // 매수 시점 설정값 스냅샷(highPercentage/lowPercentage와 동일한 이유) - 'trailing'(기본,
+  // 트레일링 익절/손절+quick_stop) | 'tick_down'(매 틱마다 직전 틱 대비 하락시 즉시매도).
+  readonly sellStrategy: SellStrategy;
+
   // 매수 주문 시각(Order.orderedAt) - priceAt60s(매수 60초 뒤 관측가) 카운트 기준점.
   readonly orderedAt: Date;
 
@@ -85,13 +95,20 @@ export class PositionWatcher {
   // sellAmtHigh/highPercentage로부터 역산 가능해서 재시작 복구(resume) 시 그렇게 채운다.
   entryPrice = 0;
 
-  highOrLow: 'high' | 'low' | 'timeout' | 'quick_stop' | '' = '';
+  highOrLow: 'high' | 'low' | 'timeout' | 'quick_stop' | 'tick_down' | '' = '';
 
   // 매수 후 관측되는 첫 틱에서 진입가 밑으로 이미 꺾여있는지 딱 한 번만 확인하기 위한 플래그
   // (2026-08-20) - "거래대금 스캐너의 핵심은 고점 찍기 전에 올라타는 것인데, 산 직후 바로
   // 꺾인다는 건 사실 고점에 물렸다는 신호"라는 가정. resume() 시 watching_for_sell 상태로
-  // 복구되는 경우는 이미 진짜 첫 틱을 한참 지난 뒤라 true로 시작(재적용 안 함).
+  // 복구되는 경우는 이미 진짜 첫 틱을 한참 지난 뒤라 true로 시작(재적용 안 함). trailing
+  // 전략의 quick_stop 판단에만 쓰이지만, firstTickPrice 회고 캡처는 전략 무관하게 공통이라
+  // 이 플래그도 계속 공통으로 둔다.
   private firstTickChecked = false;
+
+  // tick_down 전략(2026-08-24) 전용 - 직전에 관측한 틱의 가격. 영속화하지 않는다: 신규
+  // 시작이든 재시작 복구든 undefined로 시작해서, 다음 틱이 들어올 때까지는 비교 없이 그
+  // 값을 기준선으로만 삼는다(재시작 직후 다른 값과 섣불리 비교해 매도하지 않기 위함).
+  private previousTickPrice?: number;
 
   // 진입가 이상으로 처음 올라선 시각 - PROFIT_TIMEOUT_MS 카운트 시작점. 한번 세팅되면
   // 이후 다시 진입가 밑으로 내려가도 리셋하지 않는다("5분 안에 익절선을 못 뚫으면 이미
@@ -112,7 +129,7 @@ export class PositionWatcher {
 
   private activeListener?: BalanceListener;
 
-  private constructor(id: number, sessionId: number, orderId: number, code: string, name: string | null, sourceStrategy: string, highPercentage: number, lowPercentage: number, orderedAt: Date, onDone?: OnDone) {
+  private constructor(id: number, sessionId: number, orderId: number, code: string, name: string | null, sourceStrategy: string, highPercentage: number, lowPercentage: number, sellStrategy: SellStrategy, orderedAt: Date, onDone?: OnDone) {
     this.id = id;
     this.sessionId = sessionId;
     this.orderId = orderId;
@@ -121,26 +138,27 @@ export class PositionWatcher {
     this.sourceStrategy = sourceStrategy;
     this.highPercentage = highPercentage;
     this.lowPercentage = lowPercentage;
+    this.sellStrategy = sellStrategy;
     this.orderedAt = orderedAt;
     this.onDone = onDone;
   }
 
-  // 신규 매수 직후 호출 (scanner.ts). 매수 시점의 %를 스냅샷으로 저장해서 도중에
+  // 신규 매수 직후 호출 (scanner.ts). 매수 시점의 %/전략을 스냅샷으로 저장해서 도중에
   // 설정이 바뀌거나 서버가 재시작돼도 이 포지션은 원래 기준 그대로 동작한다.
-  static async start(sessionId: number, orderId: number, code: string, name: string | null | undefined, sourceStrategy: string, highPercentage: number, lowPercentage: number, orderedAt: Date, onDone?: OnDone) {
-    const row = await getPrisma().positionWatcher.create({ data: { orderId, code, highPercentage, lowPercentage, state: 'checking' } });
-    const watcher = new PositionWatcher(row.id, sessionId, orderId, code, name ?? null, sourceStrategy, highPercentage, lowPercentage, orderedAt, onDone);
+  static async start(sessionId: number, orderId: number, code: string, name: string | null | undefined, sourceStrategy: string, highPercentage: number, lowPercentage: number, sellStrategy: SellStrategy, orderedAt: Date, onDone?: OnDone) {
+    const row = await getPrisma().positionWatcher.create({ data: { orderId, code, highPercentage, lowPercentage, sellStrategy, state: 'checking' } });
+    const watcher = new PositionWatcher(row.id, sessionId, orderId, code, name ?? null, sourceStrategy, highPercentage, lowPercentage, sellStrategy, orderedAt, onDone);
     watcher.checking();
     return watcher;
   }
 
   // 서버 재시작 후 미종료 watcher 복구 (runtime.ts)
   static resume(row: ResumeRow, sessionId: number, name: string | null, sourceStrategy: string, orderedAt: Date, onDone?: OnDone) {
-    const watcher = new PositionWatcher(row.id, sessionId, row.orderId, row.code, name, sourceStrategy, row.highPercentage, row.lowPercentage, orderedAt, onDone);
+    const watcher = new PositionWatcher(row.id, sessionId, row.orderId, row.code, name, sourceStrategy, row.highPercentage, row.lowPercentage, row.sellStrategy, orderedAt, onDone);
     watcher.sellAmtHigh = row.sellAmtHigh ? Number(row.sellAmtHigh) : 0;
     watcher.sellAmtLow = row.sellAmtLow ? Number(row.sellAmtLow) : 0;
     watcher.peakPrice = row.peakPrice ? Number(row.peakPrice) : 0;
-    watcher.highOrLow = (row.highOrLow as 'high' | 'low' | 'timeout' | 'quick_stop' | '') || '';
+    watcher.highOrLow = (row.highOrLow as 'high' | 'low' | 'timeout' | 'quick_stop' | 'tick_down' | '') || '';
     watcher.profitSince = row.profitSince ?? undefined;
     watcher.priceAt60s = row.priceAt60s ? Number(row.priceAt60s) : undefined;
     watcher.firstTickPrice = row.firstTickPrice ? Number(row.firstTickPrice) : undefined;
@@ -243,11 +261,13 @@ export class PositionWatcher {
     BalancePoller.addListener(listener);
   }
 
-  // 손절(low)은 진입 이후 관측된 고점(peakPrice) 기준으로 매 틱마다 다시 계산해서 신고점을
-  // 찍을수록 손절선도 같이 끌어올린다(내려가지는 않음). 익절(high)도 2026-08-14부터 같은
-  // 방식의 트레일링 - highAmt(+3%)는 매수 시점에 고정된 "최초 도달선"일 뿐이고, 거기 한번
-  // 도달한 뒤로는 즉시 팔지 않고 고점을 계속 갱신하며 들고 가다가 고점에서 한 틱이라도
-  // 꺾이면 그 즉시 매도한다(자세한 조건은 아래 리스너의 reachedTarget/checkHigh 참고).
+  // sellStrategy === 'trailing'(기본): 손절(low)은 진입 이후 관측된 고점(peakPrice) 기준으로
+  // 매 틱마다 다시 계산해서 신고점을 찍을수록 손절선도 같이 끌어올린다(내려가지는 않음).
+  // 익절(high)도 2026-08-14부터 같은 방식의 트레일링 - highAmt(+3%)는 매수 시점에 고정된
+  // "최초 도달선"일 뿐이고, 거기 한번 도달한 뒤로는 즉시 팔지 않고 고점을 계속 갱신하며
+  // 들고 가다가 고점에서 한 틱이라도 꺾이면 그 즉시 매도한다(자세한 조건은 아래 리스너의
+  // reachedTarget/checkHigh 참고). sellStrategy === 'tick_down'이면 이 트레일링 로직 대신
+  // "직전 틱 대비 하락하면 즉시 매도"로 완전히 다른 판단을 쓴다 - 아래 리스너에서 분기.
   private watchForSell(holding?: InquireBalanceItem) {
     this.state = 'watching_for_sell';
     this.stateMessage = '매도 체크중';
@@ -277,17 +297,12 @@ export class PositionWatcher {
 
       const price = Number(current.prpr);
 
-      // 매수 후 첫 관측 틱에 이미 진입가 밑이면 "고점에 물렸다"고 보고 그 자리에서 바로
-      // 정리한다 - 거래증가율 스캐너의 전제 자체가 "고점 찍기 전에 올라타는 것"이라, 사자마자
-      // 바로 꺾이는 건 이미 늦게 들어갔다는 신호로 본다(2026-08-20). 이후 틱에는 다시
-      // 적용하지 않는다 - 트레일링 손절(checkLow)의 넓은 -4% 구간이 그 뒤를 담당한다.
+      // 아래 회고용 데이터 캡처(firstTickPrice/peakPrice/profitSince/priceAt60s)는 매도전략과
+      // 무관하게 공통으로 계속 쌓는다 - tick_down 전략으로 산 포지션이라도 이후 trailing으로
+      // 되돌아갈 경우 등을 비교할 수 있어야 한다.
       const isFirstTick = !this.firstTickChecked;
       this.firstTickChecked = true;
-      const checkQuickReversal = isFirstTick && this.entryPrice > 0 && price < this.entryPrice;
 
-      // quick_stop 발동 여부와 무관하게 첫 틱 가격 자체는 항상 회고용으로 남긴다 - 다음 전략
-      // 튜닝 때 등락률 분포를 보려면 quick_stop이 안 걸린(=첫 틱이 진입가 이상이었던) 케이스도
-      // 필요하다(2026-08-20).
       if (isFirstTick) {
         this.firstTickPrice = price;
         this.persist({ firstTickPrice: price });
@@ -309,30 +324,64 @@ export class PositionWatcher {
         this.persist({ priceAt60s: price });
       }
 
-      // 익절도 2026-08-14부터 트레일링: highAmt(+3%)에 처음 도달한 뒤에는 그 자리에서 바로
-      // 팔지 않고 고점(peakPrice)을 계속 갱신하며 들고 가다가, 고점 대비 단 한 틱이라도
-      // 꺾이면(price < peakPrice) 즉시 매도한다 - peakPrice가 highAmt 이상으로 한번 올라가면
-      // 절대 다시 안 내려가므로(위 트레일링 로직) reachedTarget은 한번 true가 되면 계속 true.
-      const reachedTarget = this.peakPrice >= highAmt;
-      const checkHigh = reachedTarget && price < this.peakPrice;
-      const checkLow = price <= this.sellAmtLow;
-      // 익절권 진입 후 PROFIT_TIMEOUT_MS 안에 익절선을 못 뚫었으면 지금 가격 그대로 정리한다.
-      // 이미 손실권(진입가 미만)으로 내려간 경우(checkLow)나 이미 익절선을 넘어서 트레일링 중인
-      // 경우(reachedTarget)는 각각 트레일링 손절/트레일링 익절의 몫이라 제외한다.
-      const checkTimeout = PROFIT_TIMEOUT_ENABLED && !reachedTarget && !checkLow && !!this.profitSince
-        && Date.now() - this.profitSince.getTime() >= PROFIT_TIMEOUT_MS
-        && price >= this.entryPrice;
-      if (!checkQuickReversal && !checkHigh && !checkLow && !checkTimeout) return;
+      let shouldExit = false;
 
-      if (checkQuickReversal) {
-        this.highOrLow = 'quick_stop';
-      } else if (checkHigh) {
-        this.highOrLow = 'high';
-      } else if (checkLow) {
-        this.highOrLow = 'low';
+      if (this.sellStrategy === 'tick_down') {
+        // 2026-08-24 추가된 매도전략: 매수 후 매 틱마다 직전 틱 대비 하락하면(같은 값은
+        // "하락"이 아니므로 계속 보유) 그 즉시 매도, 계속 상승/횡보하는 한 계속 들고 간다.
+        // trailing 전략의 quick_stop(첫 틱만 확인)을 전체 보유 기간으로 일반화한 버전 -
+        // "산 뒤로 단 한 번이라도 꺾이면 이미 고점을 놓친 것"이라는 같은 가정을 계속 적용한다.
+        // 무한정 들고 가는 위험을 막기 위해 진입가 대비 TICK_DOWN_CAP_PERCENT(25%) 이상
+        // 오르면 하락 여부와 무관하게 즉시 매도(우선순위 최상위).
+        const checkCapReached = this.entryPrice > 0 && price >= this.entryPrice * (1 + TICK_DOWN_CAP_PERCENT / 100);
+        const checkTickDown = this.previousTickPrice !== undefined && price < this.previousTickPrice;
+        this.previousTickPrice = price;
+
+        if (checkCapReached) {
+          this.highOrLow = 'high';
+          shouldExit = true;
+        } else if (checkTickDown) {
+          this.highOrLow = 'tick_down';
+          shouldExit = true;
+        }
       } else {
-        this.highOrLow = 'timeout';
+        // 매수 후 첫 관측 틱에 이미 진입가 밑이면 "고점에 물렸다"고 보고 그 자리에서 바로
+        // 정리한다 - 거래증가율 스캐너의 전제 자체가 "고점 찍기 전에 올라타는 것"이라, 사자마자
+        // 바로 꺾이는 건 이미 늦게 들어갔다는 신호로 본다(2026-08-20). 이후 틱에는 다시
+        // 적용하지 않는다 - 트레일링 손절(checkLow)의 넓은 -4% 구간이 그 뒤를 담당한다.
+        const checkQuickReversal = isFirstTick && this.entryPrice > 0 && price < this.entryPrice;
+
+        // 익절도 2026-08-14부터 트레일링: highAmt(+3%)에 처음 도달한 뒤에는 그 자리에서 바로
+        // 팔지 않고 고점(peakPrice)을 계속 갱신하며 들고 가다가, 고점 대비 단 한 틱이라도
+        // 꺾이면(price < peakPrice) 즉시 매도한다 - peakPrice가 highAmt 이상으로 한번 올라가면
+        // 절대 다시 안 내려가므로(위 트레일링 로직) reachedTarget은 한번 true가 되면 계속 true.
+        const reachedTarget = this.peakPrice >= highAmt;
+        const checkHigh = reachedTarget && price < this.peakPrice;
+        const checkLow = price <= this.sellAmtLow;
+        // 익절권 진입 후 PROFIT_TIMEOUT_MS 안에 익절선을 못 뚫었으면 지금 가격 그대로 정리한다.
+        // 이미 손실권(진입가 미만)으로 내려간 경우(checkLow)나 이미 익절선을 넘어서 트레일링 중인
+        // 경우(reachedTarget)는 각각 트레일링 손절/트레일링 익절의 몫이라 제외한다.
+        const checkTimeout = PROFIT_TIMEOUT_ENABLED && !reachedTarget && !checkLow && !!this.profitSince
+          && Date.now() - this.profitSince.getTime() >= PROFIT_TIMEOUT_MS
+          && price >= this.entryPrice;
+
+        if (checkQuickReversal) {
+          this.highOrLow = 'quick_stop';
+          shouldExit = true;
+        } else if (checkHigh) {
+          this.highOrLow = 'high';
+          shouldExit = true;
+        } else if (checkLow) {
+          this.highOrLow = 'low';
+          shouldExit = true;
+        } else if (checkTimeout) {
+          this.highOrLow = 'timeout';
+          shouldExit = true;
+        }
       }
+
+      if (!shouldExit) return;
+
       BalancePoller.removeListener(listener);
       await this.persist({ highOrLow: this.highOrLow });
 
