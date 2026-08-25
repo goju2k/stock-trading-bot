@@ -13,7 +13,7 @@ const NUMBER_FIELDS = [
 ] as const;
 
 const BOOLEAN_FIELDS = [
-  'autoTradingEnabled', 'requireForeignInstitutionNetBuy', 'viStrategyEnabled', 'gapStrategyEnabled',
+  'autoTradingEnabled', 'requireForeignInstitutionNetBuy', 'viStrategyEnabled', 'gapStrategyEnabled', 'quickStopEnabled',
 ] as const;
 
 // 값이 정해진 문자열(enum) 필드 - 허용 목록에 없는 값은 거부한다.

@@ -74,6 +74,7 @@ export function ConfigPage() {
             { label: '외국인/기관 순매수 필터', targetId: 'requireForeignInstitutionNetBuy', formType: 'check', editable: true },
             { label: 'VI 해제 모멘텀 전략', targetId: 'viStrategyEnabled', formType: 'check', editable: true },
             { label: '시가 갭 상승 전략', targetId: 'gapStrategyEnabled', formType: 'check', editable: true },
+            { label: 'quick_stop (trailing 전략 첫틱 즉시손절)', targetId: 'quickStopEnabled', formType: 'check', editable: true },
           ]}
           data={configState}
           setData={setConfigState}

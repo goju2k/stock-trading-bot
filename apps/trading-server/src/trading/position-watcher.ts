@@ -18,6 +18,7 @@ export interface ResumeRow {
   highPercentage: number;
   lowPercentage: number;
   sellStrategy: SellStrategy;
+  quickStopEnabled: boolean;
   sellAmtHigh: unknown;
   sellAmtLow: unknown;
   peakPrice: unknown;
@@ -79,6 +80,11 @@ export class PositionWatcher {
   // 트레일링 익절/손절+quick_stop) | 'tick_down'(매 틱마다 직전 틱 대비 하락시 즉시매도).
   readonly sellStrategy: SellStrategy;
 
+  // trailing 전략 안의 quick_stop만 별도로 끌 수 있는 스위치(2026-08-25) - false면 trailing의
+  // 나머지(트레일링 익절/손절)는 그대로 두고 첫 틱 즉시손절 판단만 건너뛴다. tick_down
+  // 전략일 땐 애초에 안 읽힘(quick_stop 자체가 trailing 전용 로직).
+  readonly quickStopEnabled: boolean;
+
   // 매수 주문 시각(Order.orderedAt) - priceAt60s(매수 60초 뒤 관측가) 카운트 기준점.
   readonly orderedAt: Date;
 
@@ -129,7 +135,7 @@ export class PositionWatcher {
 
   private activeListener?: BalanceListener;
 
-  private constructor(id: number, sessionId: number, orderId: number, code: string, name: string | null, sourceStrategy: string, highPercentage: number, lowPercentage: number, sellStrategy: SellStrategy, orderedAt: Date, onDone?: OnDone) {
+  private constructor(id: number, sessionId: number, orderId: number, code: string, name: string | null, sourceStrategy: string, highPercentage: number, lowPercentage: number, sellStrategy: SellStrategy, quickStopEnabled: boolean, orderedAt: Date, onDone?: OnDone) {
     this.id = id;
     this.sessionId = sessionId;
     this.orderId = orderId;
@@ -139,22 +145,23 @@ export class PositionWatcher {
     this.highPercentage = highPercentage;
     this.lowPercentage = lowPercentage;
     this.sellStrategy = sellStrategy;
+    this.quickStopEnabled = quickStopEnabled;
     this.orderedAt = orderedAt;
     this.onDone = onDone;
   }
 
   // 신규 매수 직후 호출 (scanner.ts). 매수 시점의 %/전략을 스냅샷으로 저장해서 도중에
   // 설정이 바뀌거나 서버가 재시작돼도 이 포지션은 원래 기준 그대로 동작한다.
-  static async start(sessionId: number, orderId: number, code: string, name: string | null | undefined, sourceStrategy: string, highPercentage: number, lowPercentage: number, sellStrategy: SellStrategy, orderedAt: Date, onDone?: OnDone) {
-    const row = await getPrisma().positionWatcher.create({ data: { orderId, code, highPercentage, lowPercentage, sellStrategy, state: 'checking' } });
-    const watcher = new PositionWatcher(row.id, sessionId, orderId, code, name ?? null, sourceStrategy, highPercentage, lowPercentage, sellStrategy, orderedAt, onDone);
+  static async start(sessionId: number, orderId: number, code: string, name: string | null | undefined, sourceStrategy: string, highPercentage: number, lowPercentage: number, sellStrategy: SellStrategy, quickStopEnabled: boolean, orderedAt: Date, onDone?: OnDone) {
+    const row = await getPrisma().positionWatcher.create({ data: { orderId, code, highPercentage, lowPercentage, sellStrategy, quickStopEnabled, state: 'checking' } });
+    const watcher = new PositionWatcher(row.id, sessionId, orderId, code, name ?? null, sourceStrategy, highPercentage, lowPercentage, sellStrategy, quickStopEnabled, orderedAt, onDone);
     watcher.checking();
     return watcher;
   }
 
   // 서버 재시작 후 미종료 watcher 복구 (runtime.ts)
   static resume(row: ResumeRow, sessionId: number, name: string | null, sourceStrategy: string, orderedAt: Date, onDone?: OnDone) {
-    const watcher = new PositionWatcher(row.id, sessionId, row.orderId, row.code, name, sourceStrategy, row.highPercentage, row.lowPercentage, row.sellStrategy, orderedAt, onDone);
+    const watcher = new PositionWatcher(row.id, sessionId, row.orderId, row.code, name, sourceStrategy, row.highPercentage, row.lowPercentage, row.sellStrategy, row.quickStopEnabled, orderedAt, onDone);
     watcher.sellAmtHigh = row.sellAmtHigh ? Number(row.sellAmtHigh) : 0;
     watcher.sellAmtLow = row.sellAmtLow ? Number(row.sellAmtLow) : 0;
     watcher.peakPrice = row.peakPrice ? Number(row.peakPrice) : 0;
@@ -349,7 +356,9 @@ export class PositionWatcher {
         // 정리한다 - 거래증가율 스캐너의 전제 자체가 "고점 찍기 전에 올라타는 것"이라, 사자마자
         // 바로 꺾이는 건 이미 늦게 들어갔다는 신호로 본다(2026-08-20). 이후 틱에는 다시
         // 적용하지 않는다 - 트레일링 손절(checkLow)의 넓은 -4% 구간이 그 뒤를 담당한다.
-        const checkQuickReversal = isFirstTick && this.entryPrice > 0 && price < this.entryPrice;
+        // quickStopEnabled=false면 이 판단 자체를 건너뛴다(2026-08-25) - trailing의 나머지
+        // (트레일링 익절/손절)는 그대로 두고 quick_stop만 별도로 끌 수 있게.
+        const checkQuickReversal = this.quickStopEnabled && isFirstTick && this.entryPrice > 0 && price < this.entryPrice;
 
         // 익절도 2026-08-14부터 트레일링: highAmt(+3%)에 처음 도달한 뒤에는 그 자리에서 바로
         // 팔지 않고 고점(peakPrice)을 계속 갱신하며 들고 가다가, 고점 대비 단 한 틱이라도
