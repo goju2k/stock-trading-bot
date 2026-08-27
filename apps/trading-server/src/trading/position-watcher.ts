@@ -3,6 +3,7 @@ import { PositionState, SellStrategy } from '@prisma/client';
 import { BalanceListener, BalancePoller } from './balance-poller';
 import { logTradeEvent } from './log-trade-event';
 import { getMarketTickDelta } from './market-condition';
+import { getRealizedPnlToday } from './session-orders';
 
 import { inquireBalance, placeMarketOrder } from '../kis';
 import { InquireBalanceItem } from '../kis/types';
@@ -221,7 +222,11 @@ export class PositionWatcher {
     const pnl = Math.round((price - Number(current.pchs_avg_pric)) * sellQty);
     await this.persist({ sellPrice: price, sellQty, pnl, kospiDeltaAtSell: getMarketTickDelta() });
 
-    await logTradeEvent({ sessionId: this.sessionId, type: 'forced_liquidation', code: this.code, name: this.name, message: `${reason} (${this.sourceStrategy})`, payload: { qty: sellQty, price, pnl }, notify: options?.notify ?? true });
+    // 오늘 누적 손익을 매도 메시지에 같이 보여준다(2026-08-27, 보는 재미를 위한 요청) -
+    // notify:false로 15:15 일괄청산에서 호출될 때도 계산 자체는 하지만(가벼운 집계 쿼리라
+    // 부담 없음) 어차피 메시지가 안 나가니 무해하다.
+    const cumulativePnl = await getRealizedPnlToday(this.sessionId);
+    await logTradeEvent({ sessionId: this.sessionId, type: 'forced_liquidation', code: this.code, name: this.name, message: `${reason} (${this.sourceStrategy}) ${sellQty}주 @ ${price}원 (손익 ${pnl}원)\n오늘 누적손익: ${cumulativePnl.toLocaleString('ko-KR')}원`, payload: { qty: sellQty, price, pnl }, notify: options?.notify ?? true });
 
     this.sellWaiting();
   }
@@ -418,7 +423,10 @@ export class PositionWatcher {
       const pnl = Math.round((price - Number(current.pchs_avg_pric)) * Number(qty));
       await this.persist({ sellPrice: price, sellQty: Number(qty), pnl, kospiDeltaAtSell: getMarketTickDelta() });
 
-      await logTradeEvent({ sessionId: this.sessionId, type: 'sell_executed', code: this.code, name: this.name, message: `매도 체결(${this.sourceStrategy}) (${this.highOrLow}) ${qty}주 @ ${price}원 (손익 ${pnl}원)`, payload: { qty, price, pnl } });
+      // 오늘 누적 손익을 매도 메시지에 같이 보여준다(2026-08-27, 보는 재미를 위한 요청) - 방금
+      // persist한 이 건의 pnl도 이미 DB에 반영된 뒤라 합계에 포함된다.
+      const cumulativePnl = await getRealizedPnlToday(this.sessionId);
+      await logTradeEvent({ sessionId: this.sessionId, type: 'sell_executed', code: this.code, name: this.name, message: `매도 체결(${this.sourceStrategy}) (${this.highOrLow}) ${qty}주 @ ${price}원 (손익 ${pnl}원)\n오늘 누적손익: ${cumulativePnl.toLocaleString('ko-KR')}원`, payload: { qty, price, pnl } });
 
       this.sellWaiting();
     };
