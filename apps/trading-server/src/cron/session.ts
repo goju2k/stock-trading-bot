@@ -198,7 +198,10 @@ export async function ensureTodaySessionOpen() {
 
   const sessionDate = todayDateOnly();
   const session = await getPrisma().tradingSession.findUnique({ where: { sessionDate } });
-  if (session?.openedAt) {
+  // 휴장일로 이미 판정된 날(isBusinessDay=false)도 여기서 끝낸다 - 휴장일엔 openedAt이 계속
+  // null이라 openedAt만 보면 "아직 안 열림"으로 오인해서 5분마다 KIS 휴장일 조회 + "휴장일"
+  // 디스코드 알림을 하루 종일 반복했다(2026-10-05 발견).
+  if (session?.openedAt || session?.isBusinessDay === false) {
     return;
   }
 
