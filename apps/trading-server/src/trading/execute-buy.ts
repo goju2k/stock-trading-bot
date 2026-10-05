@@ -1,4 +1,4 @@
-import { TradingConfig } from '@prisma/client';
+import { Prisma, TradingConfig } from '@prisma/client';
 
 import { classifyHeadline } from './headline-keywords';
 import { logTradeEvent } from './log-trade-event';
@@ -22,6 +22,8 @@ export interface ExecuteBuyInput {
   viKindCode?: string;
   viDprt?: string;
   viReleaseHour?: string;
+  // 매수를 트리거한 스캐너 응답 스냅샷 - 회고용 (Order.scanSnapshot).
+  scanSnapshot?: Prisma.InputJsonValue;
 }
 
 // 1건당 매수금액의 최대/최소 기준액. 장 시작 시점 가용현금(TradingSession.startingCash) 스냅샷에
@@ -81,7 +83,7 @@ async function attachHeadline(orderId: number, code: string, name?: string) {
 // 매수 주문 실행 + Order/TradeEvent 기록 + PositionWatcher 기동. scanner.ts(거래대금순위)와
 // vi-scanner.ts(VI 해제 모멘텀)가 공유하는 공통 매수 체결 경로 - 진입 신호만 다르고 이후
 // 체결/청산 처리는 전략 무관하게 동일하다.
-export async function executeBuy({ sessionId, config, code, name, price, sourceStrategy, viKindCode, viDprt, viReleaseHour }: ExecuteBuyInput) {
+export async function executeBuy({ sessionId, config, code, name, price, sourceStrategy, viKindCode, viDprt, viReleaseHour, scanSnapshot }: ExecuteBuyInput) {
   if (!reserveBuyLock(code)) {
     console.log(`[execute-buy] ${code} 다른 전략이 이미 매수 시도 중이라 스킵 (${sourceStrategy})`);
     return;
@@ -125,7 +127,7 @@ export async function executeBuy({ sessionId, config, code, name, price, sourceS
       return;
     }
 
-    const order = await prisma.order.create({ data: { sessionId, code, name, buyPrice: price, qty, kisOrderNo: res.output.ODNO, sourceStrategy, viKindCode, viDprt, viReleaseHour, kospiDeltaAtBuy: getMarketTickDelta() } });
+    const order = await prisma.order.create({ data: { sessionId, code, name, buyPrice: price, qty, kisOrderNo: res.output.ODNO, sourceStrategy, viKindCode, viDprt, viReleaseHour, kospiDeltaAtBuy: getMarketTickDelta(), scanSnapshot } });
 
     await logTradeEvent({
       sessionId,
@@ -136,7 +138,14 @@ export async function executeBuy({ sessionId, config, code, name, price, sourceS
       payload: { qty, price, sourceStrategy },
     });
 
-    const watcher = await PositionWatcher.start(sessionId, order.id, code, name, sourceStrategy, config.highPercentage, config.lowPercentage, config.sellStrategy, config.quickStopEnabled, order.orderedAt, (w) => TradingRuntime.remove(w.code));
+    const settings = {
+      highPercentage: config.highPercentage,
+      lowPercentage: config.lowPercentage,
+      sellStrategy: config.sellStrategy,
+      quickStopEnabled: config.quickStopEnabled,
+      cut60sEnabled: config.cut60sEnabled,
+    };
+    const watcher = await PositionWatcher.start(sessionId, order.id, code, name, sourceStrategy, settings, order.orderedAt, (w) => TradingRuntime.remove(w.code));
     TradingRuntime.add(watcher);
 
     attachHeadline(order.id, code, name);

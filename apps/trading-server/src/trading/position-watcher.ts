@@ -20,6 +20,7 @@ export interface ResumeRow {
   lowPercentage: number;
   sellStrategy: SellStrategy;
   quickStopEnabled: boolean;
+  cut60sEnabled: boolean;
   sellAmtHigh: unknown;
   sellAmtLow: unknown;
   peakPrice: unknown;
@@ -27,6 +28,16 @@ export interface ResumeRow {
   profitSince: Date | null;
   priceAt60s: unknown;
   firstTickPrice: unknown;
+}
+
+// 매수 시점에 TradingConfig에서 스냅샷해서 PositionWatcher 행에 고정하는 값들 - 도중에 설정이
+// 바뀌거나 재시작돼도 이 포지션은 원래 기준대로 동작한다. 인자가 계속 늘어나서 하나로 묶었다.
+export interface PositionSettings {
+  highPercentage: number;
+  lowPercentage: number;
+  sellStrategy: SellStrategy;
+  quickStopEnabled: boolean;
+  cut60sEnabled: boolean;
 }
 
 // 익절권(진입가 이상)에 처음 들어선 뒤 이 시간 안에 익절선을 못 뚫으면 그 시점 가격 그대로
@@ -52,6 +63,15 @@ const PROFIT_TIMEOUT_MS = 10 * 60 * 1000;
 // 무한정 허용하면 급등 후 단 한 틱만에 크게 반납할 위험이 있어서, 진입가 대비 이 값(%) 이상
 // 오르면 하락 여부와 무관하게 그 자리에서 바로 매도한다.
 const TICK_DOWN_CAP_PERCENT = 25;
+
+// cut_60s(아래 cut60sEnabled 참고)는 "매수 직후 60초 시점" 판단이라, 재시작 등으로 그 시점을
+// 한참 지나서야 priceAt60s를 처음 캡처하게 된 경우엔 적용하지 않는다 - 20분 지난 포지션에
+// "60초 규칙"을 뒤늦게 들이대는 건 분석 근거와 다른 규칙이 된다.
+const CUT_60S_MAX_DELAY_MS = 2 * 60 * 1000;
+
+// 가격 경로(PositionPriceTick)는 틱마다 바로 쓰지 않고 모아뒀다가 이 간격으로 한 번에 쓴다 -
+// 보유 종목 수 x 초당 1회 insert를 피하기 위함. 재시작시 최대 이 시간만큼의 경로가 빠질 수 있다.
+const PRICE_TICK_FLUSH_MS = 10 * 1000;
 
 // 기존 shared/states/global/.../trading-strategy.ts(TradingStrategy) +
 // services/trading/src/trading-strategy/sell-by-percent.ts(SellByPercent) 포팅.
@@ -86,6 +106,10 @@ export class PositionWatcher {
   // 전략일 땐 애초에 안 읽힘(quick_stop 자체가 trailing 전용 로직).
   readonly quickStopEnabled: boolean;
 
+  // trailing 전략에서 매수 60초 시점 가격이 진입가 이하면 정리하는 규칙(cut_60s, 2026-10-05)
+  // 스위치 - quickStopEnabled와 같은 방식으로 매수 시점에 스냅샷.
+  readonly cut60sEnabled: boolean;
+
   // 매수 주문 시각(Order.orderedAt) - priceAt60s(매수 60초 뒤 관측가) 카운트 기준점.
   readonly orderedAt: Date;
 
@@ -102,7 +126,7 @@ export class PositionWatcher {
   // sellAmtHigh/highPercentage로부터 역산 가능해서 재시작 복구(resume) 시 그렇게 채운다.
   entryPrice = 0;
 
-  highOrLow: 'high' | 'low' | 'timeout' | 'quick_stop' | 'tick_down' | '' = '';
+  highOrLow: 'high' | 'low' | 'timeout' | 'quick_stop' | 'tick_down' | 'cut_60s' | '' = '';
 
   // 매수 후 관측되는 첫 틱에서 진입가 밑으로 이미 꺾여있는지 딱 한 번만 확인하기 위한 플래그
   // (2026-08-20) - "거래대금 스캐너의 핵심은 고점 찍기 전에 올라타는 것인데, 산 직후 바로
@@ -132,41 +156,50 @@ export class PositionWatcher {
 
   stateMessage = '';
 
+  // 가격 경로 기록용 버퍼(PRICE_TICK_FLUSH_MS 참고) - 직전에 기록한 가격과 같으면 쌓지 않는다.
+  private priceTickBuffer: { observedAt: Date; price: number; }[] = [];
+
+  private lastRecordedPrice?: number;
+
+  private lastPriceTickFlushAt = Date.now();
+
   private onDone?: OnDone;
 
   private activeListener?: BalanceListener;
 
-  private constructor(id: number, sessionId: number, orderId: number, code: string, name: string | null, sourceStrategy: string, highPercentage: number, lowPercentage: number, sellStrategy: SellStrategy, quickStopEnabled: boolean, orderedAt: Date, onDone?: OnDone) {
+  private constructor(id: number, sessionId: number, orderId: number, code: string, name: string | null, sourceStrategy: string, settings: PositionSettings, orderedAt: Date, onDone?: OnDone) {
     this.id = id;
     this.sessionId = sessionId;
     this.orderId = orderId;
     this.code = code;
     this.name = name;
     this.sourceStrategy = sourceStrategy;
-    this.highPercentage = highPercentage;
-    this.lowPercentage = lowPercentage;
-    this.sellStrategy = sellStrategy;
-    this.quickStopEnabled = quickStopEnabled;
+    this.highPercentage = settings.highPercentage;
+    this.lowPercentage = settings.lowPercentage;
+    this.sellStrategy = settings.sellStrategy;
+    this.quickStopEnabled = settings.quickStopEnabled;
+    this.cut60sEnabled = settings.cut60sEnabled;
     this.orderedAt = orderedAt;
     this.onDone = onDone;
   }
 
   // 신규 매수 직후 호출 (scanner.ts). 매수 시점의 %/전략을 스냅샷으로 저장해서 도중에
   // 설정이 바뀌거나 서버가 재시작돼도 이 포지션은 원래 기준 그대로 동작한다.
-  static async start(sessionId: number, orderId: number, code: string, name: string | null | undefined, sourceStrategy: string, highPercentage: number, lowPercentage: number, sellStrategy: SellStrategy, quickStopEnabled: boolean, orderedAt: Date, onDone?: OnDone) {
-    const row = await getPrisma().positionWatcher.create({ data: { orderId, code, highPercentage, lowPercentage, sellStrategy, quickStopEnabled, state: 'checking' } });
-    const watcher = new PositionWatcher(row.id, sessionId, orderId, code, name ?? null, sourceStrategy, highPercentage, lowPercentage, sellStrategy, quickStopEnabled, orderedAt, onDone);
+  static async start(sessionId: number, orderId: number, code: string, name: string | null | undefined, sourceStrategy: string, settings: PositionSettings, orderedAt: Date, onDone?: OnDone) {
+    const row = await getPrisma().positionWatcher.create({ data: { orderId, code, ...settings, state: 'checking' } });
+    const watcher = new PositionWatcher(row.id, sessionId, orderId, code, name ?? null, sourceStrategy, settings, orderedAt, onDone);
     watcher.checking();
     return watcher;
   }
 
   // 서버 재시작 후 미종료 watcher 복구 (runtime.ts)
   static resume(row: ResumeRow, sessionId: number, name: string | null, sourceStrategy: string, orderedAt: Date, onDone?: OnDone) {
-    const watcher = new PositionWatcher(row.id, sessionId, row.orderId, row.code, name, sourceStrategy, row.highPercentage, row.lowPercentage, row.sellStrategy, row.quickStopEnabled, orderedAt, onDone);
+    const settings: PositionSettings = { highPercentage: row.highPercentage, lowPercentage: row.lowPercentage, sellStrategy: row.sellStrategy, quickStopEnabled: row.quickStopEnabled, cut60sEnabled: row.cut60sEnabled };
+    const watcher = new PositionWatcher(row.id, sessionId, row.orderId, row.code, name, sourceStrategy, settings, orderedAt, onDone);
     watcher.sellAmtHigh = row.sellAmtHigh ? Number(row.sellAmtHigh) : 0;
     watcher.sellAmtLow = row.sellAmtLow ? Number(row.sellAmtLow) : 0;
     watcher.peakPrice = row.peakPrice ? Number(row.peakPrice) : 0;
-    watcher.highOrLow = (row.highOrLow as 'high' | 'low' | 'timeout' | 'quick_stop' | 'tick_down' | '') || '';
+    watcher.highOrLow = (row.highOrLow as PositionWatcher['highOrLow']) || '';
     watcher.profitSince = row.profitSince ?? undefined;
     watcher.priceAt60s = row.priceAt60s ? Number(row.priceAt60s) : undefined;
     watcher.firstTickPrice = row.firstTickPrice ? Number(row.firstTickPrice) : undefined;
@@ -194,6 +227,7 @@ export class PositionWatcher {
     if (this.activeListener) {
       BalancePoller.removeListener(this.activeListener);
     }
+    this.flushPriceTicks();
 
     const { holdings } = await inquireBalance();
     const current = getHolding(holdings, this.code);
@@ -242,6 +276,7 @@ export class PositionWatcher {
       BalancePoller.removeListener(this.activeListener);
       this.activeListener = undefined;
     }
+    this.flushPriceTicks();
     this.stateMessage = message;
     return this.persist({ stateMessage: message });
   }
@@ -254,6 +289,28 @@ export class PositionWatcher {
   private persist(fields: Partial<{ state: PositionState; sellAmtHigh: number; sellAmtLow: number; peakPrice: number; highOrLow: string; stateMessage: string; sellPrice: number; sellQty: number; pnl: number; kospiDeltaAtSell: number; profitSince: Date; priceAt60s: number; firstTickPrice: number; closedAt: Date; }>) {
     return getPrisma().positionWatcher.update({ where: { id: this.id }, data: fields }).catch((error) => {
       console.error(`[position-watcher:${this.code}] persist failed`, error);
+    });
+  }
+
+  // 가격 경로 기록 - 직전 기록과 같은 가격이면 건너뛰고, 모아둔 게 PRICE_TICK_FLUSH_MS를
+  // 넘기면 한 번에 쓴다. 회고용이라 실패해도 매매에는 영향 없게 로그만 남긴다.
+  private recordPriceTick(price: number) {
+    if (price !== this.lastRecordedPrice) {
+      this.lastRecordedPrice = price;
+      this.priceTickBuffer.push({ observedAt: new Date(), price });
+    }
+    if (Date.now() - this.lastPriceTickFlushAt >= PRICE_TICK_FLUSH_MS) {
+      this.flushPriceTicks();
+    }
+  }
+
+  private flushPriceTicks() {
+    this.lastPriceTickFlushAt = Date.now();
+    if (this.priceTickBuffer.length === 0) return;
+    const data = this.priceTickBuffer.map((tick) => ({ positionWatcherId: this.id, observedAt: tick.observedAt, price: tick.price }));
+    this.priceTickBuffer = [];
+    getPrisma().positionPriceTick.createMany({ data }).catch((error) => {
+      console.error(`[position-watcher:${this.code}] price tick flush failed`, error);
     });
   }
 
@@ -308,6 +365,7 @@ export class PositionWatcher {
       if (!current || !highAmt || !this.sellAmtLow) return;
 
       const price = Number(current.prpr);
+      this.recordPriceTick(price);
 
       // 아래 회고용 데이터 캡처(firstTickPrice/peakPrice/profitSince/priceAt60s)는 매도전략과
       // 무관하게 공통으로 계속 쌓는다 - tick_down 전략으로 산 포지션이라도 이후 trailing으로
@@ -331,9 +389,15 @@ export class PositionWatcher {
         this.persist({ profitSince: this.profitSince });
       }
 
+      // cut_60s: priceAt60s를 처음 캡처하는 바로 그 틱에서만 판단한다(아래 trailing 분기).
+      let checkCut60s = false;
       if (this.priceAt60s === undefined && Date.now() - this.orderedAt.getTime() >= 60 * 1000) {
         this.priceAt60s = price;
         this.persist({ priceAt60s: price });
+        checkCut60s = this.cut60sEnabled
+          && Date.now() - this.orderedAt.getTime() < CUT_60S_MAX_DELAY_MS
+          && this.entryPrice > 0
+          && price <= this.entryPrice;
       }
 
       let shouldExit = false;
@@ -388,6 +452,14 @@ export class PositionWatcher {
         } else if (checkLow) {
           this.highOrLow = 'low';
           shouldExit = true;
+        } else if (checkCut60s) {
+          // 매수 60초 시점에 진입가 이하면 -4% 트레일링 손절까지 기다리지 않고 정리(2026-10-05).
+          // 9/1~10/2 452건 분석: 60초 시점 진입가 이하 229건 승률 약 27%(-1,838,005원), 진입가
+          // 위 193건 승률 54~63%(+725,310원). 이 규칙을 소급 적용하면 결국 이겼을 62건(수익
+          // 1,048,815원)을 포기하는 대신 진 167건의 손실이 -2,886,820 -> -906,179원으로 줄어
+          // 전체 -1,067,990 -> -349,727원(22거래일 중 18일 개선).
+          this.highOrLow = 'cut_60s';
+          shouldExit = true;
         } else if (checkTimeout) {
           this.highOrLow = 'timeout';
           shouldExit = true;
@@ -397,6 +469,7 @@ export class PositionWatcher {
       if (!shouldExit) return;
 
       BalancePoller.removeListener(listener);
+      this.flushPriceTicks();
       await this.persist({ highOrLow: this.highOrLow });
 
       const { hldg_qty: qty } = current;
@@ -450,6 +523,7 @@ export class PositionWatcher {
   }
 
   private async done(message: string) {
+    this.flushPriceTicks();
     this.state = 'done';
     this.stateMessage = message;
     await this.persist({ state: 'done', stateMessage: message, closedAt: new Date() });
@@ -457,6 +531,7 @@ export class PositionWatcher {
   }
 
   private async fail(message: string) {
+    this.flushPriceTicks();
     this.state = 'error';
     this.stateMessage = message;
     await this.persist({ state: 'error', stateMessage: message, closedAt: new Date() });

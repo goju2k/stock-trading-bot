@@ -9,11 +9,11 @@ export const configRouter = Router();
 const NUMBER_FIELDS = [
   'refreshRateMs', 'highPercentage', 'lowPercentage', 'maxOrderAmt', 'orderAmtPercent', 'minOrderAmtPercent', 'maxCandidatePrice',
   'minTargetAmt', 'minTradingCount', 'targetUpRating', 'targetIncreaseRate',
-  'gapUpThresholdPercent', 'gapScanWindowMinutes',
+  'gapUpThresholdPercent', 'gapScanWindowMinutes', 'entryStartHhmm',
 ] as const;
 
 const BOOLEAN_FIELDS = [
-  'autoTradingEnabled', 'requireForeignInstitutionNetBuy', 'viStrategyEnabled', 'gapStrategyEnabled', 'quickStopEnabled',
+  'autoTradingEnabled', 'requireForeignInstitutionNetBuy', 'viStrategyEnabled', 'gapStrategyEnabled', 'quickStopEnabled', 'cut60sEnabled',
 ] as const;
 
 // 값이 정해진 문자열(enum) 필드 - 허용 목록에 없는 값은 거부한다.

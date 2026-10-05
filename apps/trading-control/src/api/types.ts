@@ -24,6 +24,8 @@ export interface TradingConfig {
   lowPercentage: number;
   sellStrategy: SellStrategy;
   quickStopEnabled: boolean;
+  cut60sEnabled: boolean;
+  entryStartHhmm: number;
   maxOrderAmt: number;
   orderAmtPercent: number;
   minOrderAmtPercent: number;

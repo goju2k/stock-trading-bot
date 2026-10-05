@@ -52,6 +52,13 @@ model TradingConfig {
   // 있는 스위치 - trailing의 나머지(트레일링 익절/손절)는 그대로 두고 quick_stop만 실험적으로
   // 껐다 켰다 하기 위함(2026-08-25).
   quickStopEnabled   Boolean  @default(true)
+  // trailing 전략에서 매수 60초 시점 가격이 진입가 이하면 그 자리에서 정리(2026-10-05) -
+  // 9/1~10/2 452건 분석에서 60초 시점 진입가 이하 229건이 승률 약 27%/-1,838,005원,
+  // 진입가 위 193건이 승률 54~63%/+725,310원으로 가장 강하고 일관된 신호였다.
+  cut60sEnabled      Boolean  @default(true)
+  // 신규 매수 시작 시각(HHMM, 예: 910 = 09:10) - 이 시각 전엔 scanner.ts가 아예 돌지 않는다.
+  // 같은 분석에서 09:00~09:10 매수 42건이 승률 33%/-346,785원으로 전반·후반 모두 나빴다.
+  entryStartHhmm     Int      @default(910)
   // 1건당 매수금액의 절대 상한선 (설정 실수로 몰빵하는 걸 막는 안전장치일 뿐, 평소엔
   // orderAmtPercent/startingCash 계산값이 이보다 작아서 이 값에 안 걸린다).
   maxOrderAmt        Int      @default(1000000)
@@ -145,6 +152,12 @@ model Order {
   headline          String?
   headlineSentiment String?
   headlineKeyword   String?
+  // 매수를 트리거한 스캐너 응답 한 줄 전체의 스냅샷(2026-10-05, 회고용) - volume_rank면
+  // { rank, candidateCount, row } 형태로, row는 KIS volume-rank 응답 그대로(등락률/거래증가율/
+  // 누적거래량/평균거래량/거래대금/회전율 등). 한 달치 분석에서 "시간이 지날수록 누적거래량
+  // 조건이 무의미해진다"는 가설을 매수 시점 값이 없어서 검증할 수 없었던 게 계기 - 필드를
+  // 골라 담지 않고 원본을 통째로 남겨서 나중에 어떤 필드든 꺼내 볼 수 있게 한다.
+  scanSnapshot      Json?
   orderedAt DateTime @default(now())
 
   session         TradingSession   @relation(fields: [sessionId], references: [id])
@@ -165,6 +178,8 @@ model PositionWatcher {
   lowPercentage  Float
   sellStrategy   SellStrategy  @default(trailing)
   quickStopEnabled Boolean     @default(true)
+  // 이 컬럼이 생기기 전(2026-10-05 이전) 포지션은 60초 정리 규칙 없이 돌았으므로 기본값 false.
+  cut60sEnabled  Boolean       @default(false)
   sellAmtHigh    Decimal?      @db.Decimal(12, 2)
   sellAmtLow     Decimal?      @db.Decimal(12, 2)
   // 트레일링 스탑용 고점 (watching_for_sell 진입 이후 관측된 최고가). 이게 갱신될 때마다
@@ -200,9 +215,26 @@ model PositionWatcher {
   closedAt       DateTime?
   updatedAt      DateTime      @updatedAt
 
-  order Order @relation(fields: [orderId], references: [id])
+  order      Order               @relation(fields: [orderId], references: [id])
+  priceTicks PositionPriceTick[]
 
   @@map("position_watchers")
+}
+
+// watching_for_sell 동안 관측된 가격 경로(2026-10-05, 회고용) - BalancePoller 틱마다 가격이
+// 직전 기록과 달라졌을 때만 1행. peakPrice/priceAt60s 같은 요약값만으로는 "고점 +2% 찍은
+// 뒤 본전까지 내려왔다가 다시 올랐는지" 같은 경로를 알 수 없어서, 손절폭/본전스탑/시간정리
+// 같은 매도 규칙을 사후에 정확히 재시뮬레이션하려고 남긴다(KIS 분봉 재조회는 레이트리밋과
+// 장 시작 경계 버그 때문에 불안정했음).
+model PositionPriceTick {
+  id                Int             @id @default(autoincrement())
+  positionWatcherId Int
+  observedAt        DateTime
+  price             Decimal         @db.Decimal(12, 2)
+  positionWatcher   PositionWatcher @relation(fields: [positionWatcherId], references: [id])
+
+  @@index([positionWatcherId, observedAt])
+  @@map("position_price_ticks")
 }
 
 // 로그센터 대체 + FCM 푸시 트리거용 append-only 이벤트.

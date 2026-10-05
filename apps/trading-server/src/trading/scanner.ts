@@ -5,6 +5,7 @@ import { isTargetRow } from './target-filter';
 
 import { getTradingConfig } from '../config/trading-config';
 import { fetchVolumeRank } from '../kis';
+import { nowHHMMSS } from '../lib/date';
 import { getPrisma } from '../lib/prisma';
 
 let timer: NodeJS.Timeout | undefined;
@@ -22,6 +23,14 @@ async function tick(sessionId: number) {
   const prisma = getPrisma();
 
   if (!config.autoTradingEnabled) {
+    return config;
+  }
+
+  // 매수 시작 시각(entryStartHhmm, 기본 09:10) 전엔 KIS 조회도 passedCodes 누적도 하지 않는다 -
+  // 즉 스캔 자체가 이 시각부터 시작한다. 그래서 09:00~09:10 사이 먼저 순위에 올라왔던 종목도
+  // 09:10 이후 조건을 만족하면 "처음 출현"으로 보고 살 수 있다. 9/1~10/2 분석에서 09:00~09:10
+  // 매수 42건이 승률 33%/-346,785원으로 전반·후반 모두 나빴던 게 근거(2026-10-05).
+  if (nowHHMMSS() < `${String(config.entryStartHhmm).padStart(4, '0')}00`) {
     return config;
   }
 
@@ -58,6 +67,8 @@ async function tick(sessionId: number) {
       name: target.hts_kor_isnm,
       price: Number(target.stck_prpr),
       sourceStrategy: 'volume_rank',
+      // 회고용 - 이 틱에 순위 리스트에서 몇 번째였는지, 리스트가 몇 개였는지, KIS 원본 행 전체.
+      scanSnapshot: { rank: items.indexOf(target) + 1, candidateCount: items.length, row: { ...target } },
     });
   }
 

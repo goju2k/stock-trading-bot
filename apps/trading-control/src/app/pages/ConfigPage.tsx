@@ -59,6 +59,7 @@ export function ConfigPage() {
             { label: '최소 거래량', targetId: 'minTradingCount', formType: 'input', editable: true, maxLength: 10 },
             { label: '타겟 상승률 (%)', targetId: 'targetUpRating', formType: 'input', editable: true, maxLength: 4 },
             { label: '타겟 거래증가율 (%)', targetId: 'targetIncreaseRate', formType: 'input', editable: true, maxLength: 5 },
+            { label: '매수 시작 시각 (HHMM, 예: 910)', targetId: 'entryStartHhmm', formType: 'input', editable: true, maxLength: 4 },
           ]}
           data={configState}
           setData={setConfigState}
@@ -75,6 +76,7 @@ export function ConfigPage() {
             { label: 'VI 해제 모멘텀 전략', targetId: 'viStrategyEnabled', formType: 'check', editable: true },
             { label: '시가 갭 상승 전략', targetId: 'gapStrategyEnabled', formType: 'check', editable: true },
             { label: 'quick_stop (trailing 전략 첫틱 즉시손절)', targetId: 'quickStopEnabled', formType: 'check', editable: true },
+            { label: '60초 정리 (trailing 전략, 60초 시점 진입가 이하면 정리)', targetId: 'cut60sEnabled', formType: 'check', editable: true },
           ]}
           data={configState}
           setData={setConfigState}
