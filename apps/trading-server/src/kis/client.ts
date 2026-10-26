@@ -1,4 +1,4 @@
-import axios, { AxiosInstance } from 'axios';
+import axios, { AxiosHeaders, AxiosInstance, InternalAxiosRequestConfig } from 'axios';
 
 import { KisEnvName, getKisEnvConfig } from './env';
 import { scheduleKisRequest } from './request-queue';
@@ -42,10 +42,24 @@ export function assertKisSuccess(data: KisResponseBase) {
 
 // env별로 따로 캐싱한다 (real 전용 호출이 있어서 - 개장일 조회는 항상 real로 나가지만
 // 거래 모드는 paper일 수 있음. 한 프로세스 안에서 두 env 클라이언트가 동시에 존재할 수 있다).
-const cachedInstances = new Map<KisEnvName, AxiosInstance>();
-const cachedAccessTokens = new Map<KisEnvName, string>();
+// 인스턴스는 기본 헤더에 토큰을 박아두기 때문에 그 토큰의 만료시각을 같이 들고 있어야 한다 -
+// 2026-10-26 사고: 만료 확인 없이 캐시를 재사용해서, 하루 한 번(09:00 chk-holiday)만 쓰이는
+// real 클라이언트가 매 영업일 전날 토큰(24시간 경과)으로 나가 EGW00123으로 실패했다.
+interface IssuedToken {
+  accessToken: string;
+  expiresAt: Date;
+}
 
-async function issueToken(envOverride?: KisEnvName): Promise<string> {
+interface CachedClient {
+  instance: AxiosInstance;
+  expiresAt: Date;
+}
+const cachedClients = new Map<KisEnvName, CachedClient>();
+
+// 동시에 여러 요청이 만료 응답을 받아도 토큰은 한 번만 재발급한다 (KIS는 토큰 발급 빈도도 제한함).
+const pendingRefreshes = new Map<KisEnvName, Promise<IssuedToken>>();
+
+async function issueToken(envOverride?: KisEnvName): Promise<IssuedToken> {
   const { env, host, appKey, appSecret } = getKisEnvConfig(envOverride);
   const { data } = await axios.post(`${host}/oauth2/tokenP`, {
     grant_type: 'client_credentials',
@@ -58,25 +72,30 @@ async function issueToken(envOverride?: KisEnvName): Promise<string> {
   await saveToken(env, data.access_token, expiresAt);
 
   console.log(`[kis:${env}] token issued, expires ${expiresAt.toISOString()}`);
-  return data.access_token as string;
+  return { accessToken: data.access_token as string, expiresAt };
 }
 
-async function resolveAccessToken(envOverride?: KisEnvName): Promise<string> {
+async function resolveAccessToken(envOverride?: KisEnvName): Promise<IssuedToken> {
   const { env } = getKisEnvConfig(envOverride);
   const stored = await getStoredToken(env);
   if (stored && stored.expiresAt.getTime() > Date.now()) {
-    return stored.accessToken;
+    return { accessToken: stored.accessToken, expiresAt: stored.expiresAt };
   }
   return issueToken(envOverride);
 }
 
-// 강제 재발급 (401/session 만료 감지시 axios interceptor에서 호출)
+// 강제 재발급 (토큰 만료 응답 감지시 axios interceptor에서 호출). 캐시된 인스턴스를 버려서
+// 다음 getKisClient()가 새 토큰으로 인스턴스를 다시 만들게 한다.
 export async function refreshKisToken(envOverride?: KisEnvName): Promise<string> {
   const { env } = getKisEnvConfig(envOverride);
-  const token = await issueToken(envOverride);
-  cachedAccessTokens.set(env, token);
-  cachedInstances.delete(env);
-  return token;
+  let pending = pendingRefreshes.get(env);
+  if (!pending) {
+    pending = issueToken(envOverride).finally(() => pendingRefreshes.delete(env));
+    pendingRefreshes.set(env, pending);
+  }
+  const { accessToken } = await pending;
+  cachedClients.delete(env);
+  return accessToken;
 }
 
 // envOverride 없으면 현재 거래 모드(KIS_ENV)를 쓴다. 개장일 조회처럼 거래 모드와 무관하게
@@ -84,12 +103,12 @@ export async function refreshKisToken(envOverride?: KisEnvName): Promise<string>
 export async function getKisClient(envOverride?: KisEnvName): Promise<AxiosInstance> {
   const { env, host, appKey, appSecret } = getKisEnvConfig(envOverride);
 
-  const existing = cachedInstances.get(env);
-  if (existing && cachedAccessTokens.has(env)) {
-    return existing;
+  const existing = cachedClients.get(env);
+  if (existing && existing.expiresAt.getTime() > Date.now()) {
+    return existing.instance;
   }
 
-  const accessToken = await resolveAccessToken(envOverride);
+  const { accessToken, expiresAt } = await resolveAccessToken(envOverride);
 
   const instance = axios.create({
     baseURL: host,
@@ -132,8 +151,17 @@ export async function getKisClient(envOverride?: KisEnvName): Promise<AxiosInsta
     async (error) => {
       const errCd = error?.response?.data?.msg_cd;
 
+      // 토큰 만료/무효 - 재발급 후 새 토큰으로 딱 한 번만 다시 보낸다. 예전엔 재발급만 하고
+      // 원 요청은 그대로 실패시켜서, 호출부(09:00 openTodaySession 등)가 재시도 없이 죽었다.
       if (error?.response && REFRESH_ERROR_CODES.includes(errCd)) {
-        await refreshKisToken(envOverride);
+        const config = error.config as (InternalAxiosRequestConfig & { _kisTokenRetried?: boolean; }) | undefined;
+        const newToken = await refreshKisToken(envOverride);
+        if (config && !config._kisTokenRetried) {
+          console.warn(`[kis:${env}] token rejected (${errCd}), retrying once with new token`);
+          config._kisTokenRetried = true;
+          config.headers = AxiosHeaders.from(config.headers).set('Authorization', `Bearer ${newToken}`);
+          return instance.request(config);
+        }
         error.response.data = { rt_cd: 'nosession' };
         return Promise.reject(error);
       }
@@ -157,7 +185,6 @@ export async function getKisClient(envOverride?: KisEnvName): Promise<AxiosInsta
     },
   );
 
-  cachedAccessTokens.set(env, accessToken);
-  cachedInstances.set(env, instance);
+  cachedClients.set(env, { instance, expiresAt });
   return instance;
 }
