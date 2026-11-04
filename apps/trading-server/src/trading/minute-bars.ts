@@ -101,25 +101,27 @@ async function collectCodeMinuteBars(code: string, date: string, force?: boolean
   }
 }
 
-// 세션 하나(그날 매수한 모든 종목)의 분봉을 저장. 이미 그날 분봉이 있는 종목은 건너뛴다
+// 세션 하나(그날 매수한 종목 + 매수 후보)의 분봉을 저장. 이미 그날 분봉이 있는 종목은 건너뛴다
 // (force면 다시 받아서 없는 봉만 추가 - unique(code,date,time) + skipDuplicates).
 // 종목별 실패는 로그만 남기고 다음 종목으로 넘어간다 - 회고용 수집이 매매나 다른 종목을 막으면 안 된다.
 export async function collectSessionMinuteBars(sessionDate: Date, options?: { force?: boolean; }) {
   const prisma = getPrisma();
   const date = toYYYYMMDD(sessionDate);
-  const orders = await prisma.order.findMany({
-    where: { session: { sessionDate } },
-    select: { code: true },
-    distinct: [ 'code' ],
-  });
+  // 매수 종목 + 매수 조건을 통과했지만 안 산 후보(scan_candidates) - 후보 쪽은 진입 필터
+  // 오프라인 시뮬레이션의 대체 매수 대상이다.
+  const [ ordered, candidates ] = await Promise.all([
+    prisma.order.findMany({ where: { session: { sessionDate } }, select: { code: true }, distinct: [ 'code' ] }),
+    prisma.scanCandidate.findMany({ where: { session: { sessionDate } }, select: { code: true }, distinct: [ 'code' ] }),
+  ]);
+  const codes = [ ...new Set([ ...ordered, ...candidates ].map((row) => row.code)) ];
 
   let saved = 0;
   let skipped = 0;
   const failed: string[] = [];
 
   // KIS 레이트리밋 큐를 한꺼번에 채우지 않도록 종목은 하나씩 순서대로 처리한다.
-  for (let i = 0; i < orders.length; i += 1) {
-    const { code } = orders[i];
+  for (let i = 0; i < codes.length; i += 1) {
+    const code = codes[i];
     // eslint-disable-next-line no-await-in-loop
     const result = await collectCodeMinuteBars(code, date, options?.force);
     if (result === 'skipped') skipped += 1;
@@ -127,8 +129,8 @@ export async function collectSessionMinuteBars(sessionDate: Date, options?: { fo
     else saved += result;
   }
 
-  console.log(`[minute-bars] ${date} 종목 ${orders.length}개 - 저장 ${saved}봉, 기존 보유로 건너뜀 ${skipped}종목, 실패 ${failed.length}종목${failed.length ? ` (${failed.join(',')})` : ''}`);
-  return { date, codes: orders.length, saved, skipped, failed };
+  console.log(`[minute-bars] ${date} 종목 ${codes.length}개(후보 포함) - 저장 ${saved}봉, 기존 보유로 건너뜀 ${skipped}종목, 실패 ${failed.length}종목${failed.length ? ` (${failed.join(',')})` : ''}`);
+  return { date, codes: codes.length, saved, skipped, failed };
 }
 
 // 15:40 크론 - 오늘 세션이 열렸던 개장일에만 수집한다.

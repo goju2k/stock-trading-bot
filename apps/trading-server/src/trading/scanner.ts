@@ -1,5 +1,6 @@
 import { executeBuy } from './execute-buy';
 import { isForeignInstitutionNetBuy } from './foreign-institution-cache';
+import { recordScanCandidates } from './scan-candidates';
 import { getOrderedCodesToday } from './session-orders';
 import { isTargetRow } from './target-filter';
 
@@ -48,7 +49,10 @@ async function tick(sessionId: number) {
   const passed = new Set(session.passedCodes);
   const orderedToday = await getOrderedCodesToday(sessionId);
 
-  const target = items.find((item) => {
+  // 이번 틱에 매수 조건을 통과한 후보 전부. 실제로 사는 건 첫 번째 하나뿐이고 나머지는 아래
+  // passedCodes 처리로 오늘 다시 안 본다 - "그 종목을 걸렀으면 다음 후보를 샀을 것"을 나중에
+  // 분봉으로 시뮬레이션할 수 있도록 전부 scan_candidates에 남긴다(2026-11-04).
+  const eligible = items.filter((item) => {
     const code = item.mksc_shrn_iscd;
     if (orderedToday.has(code) || passed.has(code) || !isTargetRow(item, config)) {
       return false;
@@ -58,6 +62,10 @@ async function tick(sessionId: number) {
     }
     return true;
   });
+  const [ target ] = eligible;
+  if (eligible.length > 0) {
+    recordScanCandidates(sessionId, items, eligible);
+  }
 
   if (target) {
     await executeBuy({
