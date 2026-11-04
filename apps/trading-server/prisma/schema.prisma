@@ -118,6 +118,7 @@ model TradingSession {
 
   orders Order[]
   events TradeEvent[]
+  scanCandidates ScanCandidate[]
 
   @@map("trading_sessions")
 }
@@ -235,6 +236,26 @@ model PositionPriceTick {
 
   @@index([positionWatcherId, observedAt])
   @@map("position_price_ticks")
+}
+
+// scanner.ts 한 틱에서 매수 조건(isTargetRow 등)을 통과한 후보 전부(2026-11-04, scan-candidates.ts).
+// 실제로는 첫 후보(attempted)만 매수를 시도하고 나머지는 그날 다시 안 보므로, 진입 필터를 바꿨을 때
+// 대신 샀을 종목을 이 테이블로 재구성한다. row는 KIS volume-rank 행 원본(Order.scanSnapshot.row와 같은 형식).
+model ScanCandidate {
+  id             Int            @id @default(autoincrement())
+  sessionId      Int
+  code           String
+  name           String?
+  seenAt         DateTime
+  rank           Int
+  candidateCount Int
+  price          Int
+  attempted      Boolean
+  row            Json
+  session        TradingSession @relation(fields: [sessionId], references: [id])
+
+  @@index([sessionId, seenAt])
+  @@map("scan_candidates")
 }
 
 // 매수했던 종목의 그날 정규장 분봉(09:00~15:30) - 장 마감 후 KIS 주식일별분봉조회로 받아 둔다
