@@ -1,6 +1,7 @@
 import { PositionState, SellStrategy } from '@prisma/client';
 
 import { BalanceListener, BalancePoller } from './balance-poller';
+import { ExitParams } from './experiment';
 import { logTradeEvent } from './log-trade-event';
 import { getMarketTickDelta } from './market-condition';
 import { getRealizedPnlToday } from './session-orders';
@@ -21,6 +22,9 @@ export interface ResumeRow {
   sellStrategy: SellStrategy;
   quickStopEnabled: boolean;
   cut60sEnabled: boolean;
+  experimentKey: string | null;
+  experimentArm: string | null;
+  exitParams: unknown;
   sellAmtHigh: unknown;
   sellAmtLow: unknown;
   peakPrice: unknown;
@@ -38,6 +42,10 @@ export interface PositionSettings {
   sellStrategy: SellStrategy;
   quickStopEnabled: boolean;
   cut60sEnabled: boolean;
+  // 매도 규칙 A/B 실험(trading/experiment.ts) - 실험이 없으면 셋 다 null.
+  experimentKey: string | null;
+  experimentArm: string | null;
+  exitParams: ExitParams | null;
 }
 
 // 익절권(진입가 이상)에 처음 들어선 뒤 이 시간 안에 익절선을 못 뚫으면 그 시점 가격 그대로
@@ -110,6 +118,9 @@ export class PositionWatcher {
   // 스위치 - quickStopEnabled와 같은 방식으로 매수 시점에 스냅샷.
   readonly cut60sEnabled: boolean;
 
+  // A/B 실험 그룹이 준 새 매도 규칙 파라미터(본전스탑/시간손절) - 실험이 없으면 빈 객체라 지금 동작 그대로.
+  readonly exitParams: ExitParams;
+
   // 매수 주문 시각(Order.orderedAt) - priceAt60s(매수 60초 뒤 관측가) 카운트 기준점.
   readonly orderedAt: Date;
 
@@ -126,7 +137,7 @@ export class PositionWatcher {
   // sellAmtHigh/highPercentage로부터 역산 가능해서 재시작 복구(resume) 시 그렇게 채운다.
   entryPrice = 0;
 
-  highOrLow: 'high' | 'low' | 'timeout' | 'quick_stop' | 'tick_down' | 'cut_60s' | '' = '';
+  highOrLow: 'high' | 'low' | 'timeout' | 'quick_stop' | 'tick_down' | 'cut_60s' | 'breakeven' | 'time_stop' | '' = '';
 
   // 매수 후 관측되는 첫 틱에서 진입가 밑으로 이미 꺾여있는지 딱 한 번만 확인하기 위한 플래그
   // (2026-08-20) - "거래대금 스캐너의 핵심은 고점 찍기 전에 올라타는 것인데, 산 직후 바로
@@ -179,6 +190,7 @@ export class PositionWatcher {
     this.sellStrategy = settings.sellStrategy;
     this.quickStopEnabled = settings.quickStopEnabled;
     this.cut60sEnabled = settings.cut60sEnabled;
+    this.exitParams = settings.exitParams ?? {};
     this.orderedAt = orderedAt;
     this.onDone = onDone;
   }
@@ -186,7 +198,8 @@ export class PositionWatcher {
   // 신규 매수 직후 호출 (scanner.ts). 매수 시점의 %/전략을 스냅샷으로 저장해서 도중에
   // 설정이 바뀌거나 서버가 재시작돼도 이 포지션은 원래 기준 그대로 동작한다.
   static async start(sessionId: number, orderId: number, code: string, name: string | null | undefined, sourceStrategy: string, settings: PositionSettings, orderedAt: Date, onDone?: OnDone) {
-    const row = await getPrisma().positionWatcher.create({ data: { orderId, code, ...settings, state: 'checking' } });
+    const { exitParams, ...columns } = settings;
+    const row = await getPrisma().positionWatcher.create({ data: { orderId, code, ...columns, exitParams: exitParams ?? undefined, state: 'checking' } });
     const watcher = new PositionWatcher(row.id, sessionId, orderId, code, name ?? null, sourceStrategy, settings, orderedAt, onDone);
     watcher.checking();
     return watcher;
@@ -194,7 +207,16 @@ export class PositionWatcher {
 
   // 서버 재시작 후 미종료 watcher 복구 (runtime.ts)
   static resume(row: ResumeRow, sessionId: number, name: string | null, sourceStrategy: string, orderedAt: Date, onDone?: OnDone) {
-    const settings: PositionSettings = { highPercentage: row.highPercentage, lowPercentage: row.lowPercentage, sellStrategy: row.sellStrategy, quickStopEnabled: row.quickStopEnabled, cut60sEnabled: row.cut60sEnabled };
+    const settings: PositionSettings = {
+      highPercentage: row.highPercentage,
+      lowPercentage: row.lowPercentage,
+      sellStrategy: row.sellStrategy,
+      quickStopEnabled: row.quickStopEnabled,
+      cut60sEnabled: row.cut60sEnabled,
+      experimentKey: row.experimentKey,
+      experimentArm: row.experimentArm,
+      exitParams: (row.exitParams as ExitParams | null) ?? null,
+    };
     const watcher = new PositionWatcher(row.id, sessionId, row.orderId, row.code, name, sourceStrategy, settings, orderedAt, onDone);
     watcher.sellAmtHigh = row.sellAmtHigh ? Number(row.sellAmtHigh) : 0;
     watcher.sellAmtLow = row.sellAmtLow ? Number(row.sellAmtLow) : 0;
@@ -436,6 +458,16 @@ export class PositionWatcher {
         const reachedTarget = this.peakPrice >= highAmt;
         const checkHigh = reachedTarget && price < this.peakPrice;
         const checkLow = price <= this.sellAmtLow;
+        // A/B 실험 전용 규칙(trading/experiment.ts) - exitParams에 키가 없으면 항상 false.
+        // 본전스탑: 고점이 진입가 +breakevenAtPct%를 한번 넘긴 뒤로는 손절선을 진입가 +breakevenLockPct%로 끌어올린다.
+        const { breakevenAtPct, breakevenLockPct, timeStopMin, timeStopRetPct } = this.exitParams;
+        const checkBreakeven = breakevenAtPct !== undefined && this.entryPrice > 0
+          && this.peakPrice >= this.entryPrice * (1 + breakevenAtPct / 100)
+          && price <= this.entryPrice * (1 + (breakevenLockPct ?? 0) / 100);
+        // 시간손절: 매수 후 timeStopMin분이 지나도 익절선에 못 갔고 진입가 +timeStopRetPct% 미만이면 정리.
+        const checkTimeStop = timeStopMin !== undefined && !reachedTarget && this.entryPrice > 0
+          && Date.now() - this.orderedAt.getTime() >= timeStopMin * 60 * 1000
+          && price < this.entryPrice * (1 + (timeStopRetPct ?? 0) / 100);
         // 익절권 진입 후 PROFIT_TIMEOUT_MS 안에 익절선을 못 뚫었으면 지금 가격 그대로 정리한다.
         // 이미 손실권(진입가 미만)으로 내려간 경우(checkLow)나 이미 익절선을 넘어서 트레일링 중인
         // 경우(reachedTarget)는 각각 트레일링 손절/트레일링 익절의 몫이라 제외한다.
@@ -452,6 +484,9 @@ export class PositionWatcher {
         } else if (checkLow) {
           this.highOrLow = 'low';
           shouldExit = true;
+        } else if (checkBreakeven) {
+          this.highOrLow = 'breakeven';
+          shouldExit = true;
         } else if (checkCut60s) {
           // 매수 60초 시점에 진입가 이하면 -4% 트레일링 손절까지 기다리지 않고 정리(2026-10-05).
           // 9/1~10/2 452건 분석: 60초 시점 진입가 이하 229건 승률 약 27%(-1,838,005원), 진입가
@@ -459,6 +494,9 @@ export class PositionWatcher {
           // 1,048,815원)을 포기하는 대신 진 167건의 손실이 -2,886,820 -> -906,179원으로 줄어
           // 전체 -1,067,990 -> -349,727원(22거래일 중 18일 개선).
           this.highOrLow = 'cut_60s';
+          shouldExit = true;
+        } else if (checkTimeStop) {
+          this.highOrLow = 'time_stop';
           shouldExit = true;
         } else if (checkTimeout) {
           this.highOrLow = 'timeout';

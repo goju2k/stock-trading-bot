@@ -1,7 +1,9 @@
+import { Prisma } from '@prisma/client';
 import { Router } from 'express';
 
 import { getTradingConfig } from '../../config/trading-config';
 import { getPrisma } from '../../lib/prisma';
+import { parseExperiment } from '../../trading/experiment';
 import { asyncHandler } from '../async-handler';
 
 export const configRouter = Router();
@@ -21,8 +23,10 @@ const ENUM_FIELDS = { sellStrategy: [ 'trailing', 'tick_down' ] } as const;
 
 // 기존 AdvanceOrder.tsx 설정 화면이 편집하던 필드 그대로. 실거래 금액/비율이라 최소한의
 // 타입/범위 검증만 한다 (zod 등 별도 라이브러리 없이 이 레포 관례대로 손으로 체크).
+type ConfigUpdate = Record<string, number | boolean | string | Prisma.InputJsonValue | typeof Prisma.JsonNull>;
+
 function sanitizeConfigInput(body: Record<string, unknown>) {
-  const data: Record<string, number | boolean | string> = {};
+  const data: ConfigUpdate = {};
 
   NUMBER_FIELDS.forEach((field) => {
     if (body[field] === undefined) return;
@@ -50,6 +54,12 @@ function sanitizeConfigInput(body: Record<string, unknown>) {
     data[field] = body[field] as string;
   });
 
+  // 매도 규칙 A/B 실험 정의(trading/experiment.ts) - null을 보내면 실험 종료.
+  if (body.experiment !== undefined) {
+    const experiment = parseExperiment(body.experiment);
+    data.experiment = experiment === null ? Prisma.JsonNull : (experiment as unknown as Prisma.InputJsonValue);
+  }
+
   return data;
 }
 
@@ -58,7 +68,7 @@ configRouter.get('/', asyncHandler(async (_req, res) => {
 }));
 
 configRouter.put('/', asyncHandler(async (req, res) => {
-  let data: Record<string, number | boolean | string>;
+  let data: ConfigUpdate;
   try {
     data = sanitizeConfigInput(req.body || {});
   } catch (error) {

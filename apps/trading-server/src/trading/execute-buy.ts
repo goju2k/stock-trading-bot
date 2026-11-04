@@ -1,10 +1,11 @@
 import { Prisma, TradingConfig } from '@prisma/client';
 
+import { assignArm, parseExperiment, toExitParams } from './experiment';
 import { classifyHeadline } from './headline-keywords';
 import { logTradeEvent } from './log-trade-event';
 import { getMarketTickDelta } from './market-condition';
 import { searchGoogleNews } from './news-search';
-import { PositionWatcher } from './position-watcher';
+import { PositionSettings, PositionWatcher } from './position-watcher';
 import { TradingRuntime } from './runtime';
 
 import { inquireBalance, placeMarketOrder } from '../kis';
@@ -80,6 +81,44 @@ async function attachHeadline(orderId: number, code: string, name?: string) {
   }
 }
 
+// 매수 시점 매도 설정 스냅샷. A/B 실험(TradingConfig.experiment)이 켜져 있으면 이 매수의 그룹을
+// 무작위로 뽑아 그 그룹의 매도 파라미터를 덮어쓴다(trading/experiment.ts). 실험 정의가 깨져 있으면
+// 매수를 막지 않고 실험 없이(현행 규칙) 진행한다 - 설정 API에서 이미 검증하므로 정상적으론 안 생긴다.
+function resolvePositionSettings(config: TradingConfig): PositionSettings {
+  const base: PositionSettings = {
+    highPercentage: config.highPercentage,
+    lowPercentage: config.lowPercentage,
+    sellStrategy: config.sellStrategy,
+    quickStopEnabled: config.quickStopEnabled,
+    cut60sEnabled: config.cut60sEnabled,
+    experimentKey: null,
+    experimentArm: null,
+    exitParams: null,
+  };
+
+  let experiment;
+  try {
+    experiment = parseExperiment(config.experiment);
+  } catch (error) {
+    console.error('[execute-buy] invalid TradingConfig.experiment - buying without experiment', error);
+    return base;
+  }
+  if (!experiment) return base;
+
+  const arm = assignArm(experiment);
+  const { highPercentage, lowPercentage, quickStopEnabled, cut60sEnabled } = arm.exit;
+  return {
+    ...base,
+    highPercentage: highPercentage ?? base.highPercentage,
+    lowPercentage: lowPercentage ?? base.lowPercentage,
+    quickStopEnabled: quickStopEnabled ?? base.quickStopEnabled,
+    cut60sEnabled: cut60sEnabled ?? base.cut60sEnabled,
+    experimentKey: experiment.key,
+    experimentArm: arm.name,
+    exitParams: toExitParams(arm.exit),
+  };
+}
+
 // 매수 주문 실행 + Order/TradeEvent 기록 + PositionWatcher 기동. scanner.ts(거래대금순위)와
 // vi-scanner.ts(VI 해제 모멘텀)가 공유하는 공통 매수 체결 경로 - 진입 신호만 다르고 이후
 // 체결/청산 처리는 전략 무관하게 동일하다.
@@ -138,13 +177,7 @@ export async function executeBuy({ sessionId, config, code, name, price, sourceS
       payload: { qty, price, sourceStrategy },
     });
 
-    const settings = {
-      highPercentage: config.highPercentage,
-      lowPercentage: config.lowPercentage,
-      sellStrategy: config.sellStrategy,
-      quickStopEnabled: config.quickStopEnabled,
-      cut60sEnabled: config.cut60sEnabled,
-    };
+    const settings = resolvePositionSettings(config);
     const watcher = await PositionWatcher.start(sessionId, order.id, code, name, sourceStrategy, settings, order.orderedAt, (w) => TradingRuntime.remove(w.code));
     TradingRuntime.add(watcher);
 
