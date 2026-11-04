@@ -19,8 +19,17 @@ const MARKET_OPEN = '090000';
 const MARKET_CLOSE = '153000';
 // 정규장 390분 / 120봉 = 4페이지면 충분하다. 거래 없는 분은 봉이 없어서 보통 그보다 적다.
 const MAX_PAGES = 8;
+// 공용 real 큐 간격(60ms)만으로는 연속 조회시 EGW00201이 자주 나서(2026-11-04 백필 실측, 재시도로는
+// 전부 회복) 수집기 자체적으로 페이지 사이를 더 띄운다. 15:40 하루치(20종목 내외)는 20초 정도 걸린다.
+const PAGE_GAP_MS = 250;
 
 type FetchPage = (hour: string) => Promise<MinuteBarItem[]>;
+
+function sleep(ms: number) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
 
 function minusOneMinute(hhmmss: string) {
   const total = Number(hhmmss.slice(0, 2)) * 60 + Number(hhmmss.slice(2, 4)) - 1;
@@ -67,7 +76,10 @@ async function collectCodeMinuteBars(code: string, date: string, force?: boolean
   }
 
   try {
-    const bars = await fetchFullDayMinuteBars(date, (hour) => fetchDailyMinuteBars(code, date, hour));
+    const bars = await fetchFullDayMinuteBars(date, async (hour) => {
+      await sleep(PAGE_GAP_MS);
+      return fetchDailyMinuteBars(code, date, hour);
+    });
     const result = await prisma.minuteBar.createMany({
       data: bars.map((bar) => ({
         code,
