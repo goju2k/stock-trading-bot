@@ -348,9 +348,28 @@ async function buildSessionSummary(sessionId: number) {
     })
     .join('\n');
 
+  // 매도 규칙 A/B 실험(trading/experiment.ts) 그룹별 당일 결과 - 실험 매수가 없는 날은 생략.
+  const byArm = new Map<string, { n: number; wins: number; pnl: number; retSum: number; }>();
+  orders.forEach((o) => {
+    const w = o.positionWatcher;
+    if (!w?.experimentKey || w.pnl === null) return;
+    const label = `${w.experimentKey}/${w.experimentArm}`;
+    const stat = byArm.get(label) ?? { n: 0, wins: 0, pnl: 0, retSum: 0 };
+    const investedAmt = Number(o.buyPrice) * o.qty;
+    stat.n += 1;
+    stat.wins += w.pnl > 0 ? 1 : 0;
+    stat.pnl += w.pnl;
+    stat.retSum += investedAmt > 0 ? (w.pnl / investedAmt) * 100 : 0;
+    byArm.set(label, stat);
+  });
+  const experimentLines = Array.from(byArm.entries())
+    .map(([ label, stat ]) => `실험 ${label}: ${stat.n}건 승 ${stat.wins} 손익 ${stat.pnl.toLocaleString('ko-KR')}원 건당 ${(stat.retSum / stat.n).toFixed(2)}%`)
+    .join('\n');
+
   return `매수 ${totalBuys}건 / 매도완료 ${doneCount}건 (미완료 ${openCount}건) / 실현손익 약 ${realizedPnl.toLocaleString('ko-KR')}원`
     + utilizationLine
-    + (strategyLines ? `\n${strategyLines}` : '');
+    + (strategyLines ? `\n${strategyLines}` : '')
+    + (experimentLines ? `\n${experimentLines}` : '');
 }
 
 // 15:30 평일 트리거 (정규장 마감과 동시). 세션 공식 종료 기록 + 마감내역 요약. 그날 안에 못 끝난

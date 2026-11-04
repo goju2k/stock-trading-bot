@@ -59,6 +59,8 @@ model TradingConfig {
   // 신규 매수 시작 시각(HHMM, 예: 910 = 09:10) - 이 시각 전엔 scanner.ts가 아예 돌지 않는다.
   // 같은 분석에서 09:00~09:10 매수 42건이 승률 33%/-346,785원으로 전반·후반 모두 나빴다.
   entryStartHhmm     Int      @default(910)
+  // 매도 규칙 A/B 실험 정의(trading/experiment.ts, 2026-11-04). null이면 실험 없음(기본).
+  experiment         Json?
   // 1건당 매수금액의 절대 상한선 (설정 실수로 몰빵하는 걸 막는 안전장치일 뿐, 평소엔
   // orderAmtPercent/startingCash 계산값이 이보다 작아서 이 값에 안 걸린다).
   maxOrderAmt        Int      @default(1000000)
@@ -180,6 +182,11 @@ model PositionWatcher {
   quickStopEnabled Boolean     @default(true)
   // 이 컬럼이 생기기 전(2026-10-05 이전) 포지션은 60초 정리 규칙 없이 돌았으므로 기본값 false.
   cut60sEnabled  Boolean       @default(false)
+  // 매도 규칙 A/B 실험(2026-11-04) - 배정된 실험/그룹과, 기존 컬럼에 없는 새 매도 규칙 파라미터
+  // (본전스탑/시간손절 등, trading/experiment.ts ExitParams). 실험이 없던 포지션은 전부 null.
+  experimentKey  String?
+  experimentArm  String?
+  exitParams     Json?
   sellAmtHigh    Decimal?      @db.Decimal(12, 2)
   sellAmtLow     Decimal?      @db.Decimal(12, 2)
   // 트레일링 스탑용 고점 (watching_for_sell 진입 이후 관측된 최고가). 이게 갱신될 때마다
