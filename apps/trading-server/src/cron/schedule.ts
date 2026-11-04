@@ -2,7 +2,9 @@ import * as cron from 'node-cron';
 
 import { closeTodaySession, ensureTodaySessionOpen, liquidateTodaySession, openTodaySession, stopNewEntries } from './session';
 
+import { todayDateOnly } from '../lib/date';
 import { DISCORD_COLOR, sendDiscordMessage } from '../notify/discord';
+import { collectTodayMinuteBars } from '../trading/minute-bars';
 
 const TIMEZONE = 'Asia/Seoul';
 
@@ -59,5 +61,9 @@ export function startTradingCron() {
   // 마감 후 굳이 30분을 더 기다릴 이유가 없다.
   cron.schedule('30 15 * * 1-5', runSafely('closeTodaySession', closeTodaySession), { timezone: TIMEZONE });
 
-  console.log('[cron] trading schedule registered (09:00 start / 09:05~14:55 open catch-up / 14:30 new-entry cutoff / 15:15 liquidate / 15:30 close, Asia/Seoul)');
+  // 15:40 평일 - 오늘 매수한 종목의 정규장 분봉 수집(회고용, trading/minute-bars.ts). 15:30
+  // 종가 단일가 봉까지 확정된 뒤에 받는다. real 자격증명/레이트리밋 큐를 쓰므로 paper 매매와 안 겹친다.
+  cron.schedule('40 15 * * 1-5', runSafely('collectTodayMinuteBars', () => collectTodayMinuteBars(todayDateOnly())), { timezone: TIMEZONE });
+
+  console.log('[cron] trading schedule registered (09:00 start / 09:05~14:55 open catch-up / 14:30 new-entry cutoff / 15:15 liquidate / 15:30 close / 15:40 minute bars, Asia/Seoul)');
 }
