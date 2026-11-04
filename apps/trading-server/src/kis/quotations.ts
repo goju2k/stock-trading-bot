@@ -1,6 +1,6 @@
 import { assertKisSuccess, getKisClient } from './client';
 import { COMMON_TR_ID } from './tr-id';
-import { BusinessDayItem, FluctuationItem, ForeignInstitutionItem, IndexPriceItem, KisResponse, ViStatusItem, VolumeRankItem } from './types';
+import { BusinessDayItem, FluctuationItem, ForeignInstitutionItem, IndexPriceItem, KisResponse, KisResponseMulti, MinuteBarItem, ViStatusItem, VolumeRankItem } from './types';
 
 export interface VolumeRankFilter {
   minPrice: number;
@@ -140,6 +140,30 @@ export async function fetchIndexPrice(iscd: string) {
   );
   assertKisSuccess(res.data);
   return res.data.output;
+}
+
+// 주식일별분봉조회 - date(YYYYMMDD)의 hour(HHMMSS) 이전 분봉을 최신순으로 최대 120개.
+// 모의투자 TR이 아니라서 항상 real 자격증명으로 호출한다(레이트리밋도 paper와 별도 큐).
+// FID_PW_DATA_INCU_YN=Y면 120개를 채우려고 전일 봉까지 섞여 오므로 날짜 필터는 호출부 책임이다
+// (trading/minute-bars.ts). 페이지를 이어 받을 땐 이 함수에 더 이른 hour를 넘긴다.
+export async function fetchDailyMinuteBars(code: string, date: string, hour: string) {
+  const client = await getKisClient('real');
+  const res = await client.get<KisResponseMulti<unknown, MinuteBarItem[]>>(
+    'uapi/domestic-stock/v1/quotations/inquire-time-dailychartprice',
+    {
+      params: {
+        FID_COND_MRKT_DIV_CODE: 'J',
+        FID_INPUT_ISCD: code,
+        FID_INPUT_HOUR_1: hour,
+        FID_INPUT_DATE_1: date,
+        FID_PW_DATA_INCU_YN: 'Y',
+        FID_FAKE_TICK_INCU_YN: '',
+      },
+      headers: { tr_id: COMMON_TR_ID.dailyMinuteChart },
+    },
+  );
+  assertKisSuccess(res.data);
+  return res.data.output2 || [];
 }
 
 // 기준일자(YYYYMMDD)의 개장여부 조회.

@@ -26,6 +26,18 @@ export interface VolumeRankItem {
   acml_vol: string; // 누적거래량
 }
 
+// 주식일별분봉조회(inquire-time-dailychartprice) output2 한 행. 거래가 없던 분은 행 자체가 없다.
+export interface MinuteBarItem {
+  stck_bsop_date: string; // 영업일자 YYYYMMDD
+  stck_cntg_hour: string; // 체결시각 HHMMSS
+  stck_prpr: string; // 종가(해당 분 마지막 체결가)
+  stck_oprc: string; // 시가
+  stck_hgpr: string; // 고가
+  stck_lwpr: string; // 저가
+  cntg_vol: string; // 체결거래량
+  acml_tr_pbmn: string; // 누적거래대금
+}
+
 export interface BusinessDayItem {
   bass_dt: string;
   opnd_yn: string; // 개장여부 Y/N

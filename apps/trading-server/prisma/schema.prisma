@@ -237,6 +237,26 @@ model PositionPriceTick {
   @@map("position_price_ticks")
 }
 
+// 매수했던 종목의 그날 정규장 분봉(09:00~15:30) - 장 마감 후 KIS 주식일별분봉조회로 받아 둔다
+// (trading/minute-bars.ts). position_price_ticks는 매도 순간 기록이 멈추므로, 매도 이후 가격이
+// 어떻게 갔는지(손절 폭, cut_60s가 오를 종목을 판 건지 등)는 이 테이블로만 볼 수 있다.
+// 가격은 원 단위 정수. barAt은 KIS 체결시각(HHMMSS, KST)을 그대로 시각으로 옮긴 값.
+model MinuteBar {
+  id     Int      @id @default(autoincrement())
+  code   String
+  date   String // YYYYMMDD
+  time   String // HHMMSS
+  barAt  DateTime
+  open   Int
+  high   Int
+  low    Int
+  close  Int
+  volume Int
+
+  @@unique([code, date, time])
+  @@map("minute_bars")
+}
+
 // 로그센터 대체 + FCM 푸시 트리거용 append-only 이벤트.
 model TradeEvent {
   id        Int             @id @default(autoincrement())

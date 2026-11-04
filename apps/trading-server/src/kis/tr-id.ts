@@ -8,6 +8,7 @@ export const COMMON_TR_ID = {
   foreignInstitutionTotal: 'FHPTJ04400000', // 국내기관_외국인 매매종목가집계
   fluctuation: 'FHPST01700000', // 등락률 순위
   indexPrice: 'FHPUP02100000', // 국내업종 현재지수 (코스피/코스닥 등)
+  dailyMinuteChart: 'FHKST03010230', // 주식일별분봉조회 (실전 전용, 과거일자 가능, 1회 최대 120봉)
 };
 
 // 계좌/주문 tr_id는 모의투자가 'V', 실전투자가 'T' 접두사를 쓴다.
