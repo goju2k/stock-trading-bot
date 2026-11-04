@@ -5,7 +5,7 @@ import { logTradeEvent } from './log-trade-event';
 import { getMarketTickDelta } from './market-condition';
 import { getRealizedPnlToday } from './session-orders';
 
-import { inquireBalance, placeMarketOrder } from '../kis';
+import { inquireBalance, isSameStockCode, placeMarketOrder } from '../kis';
 import { InquireBalanceItem } from '../kis/types';
 import { getPrisma } from '../lib/prisma';
 
@@ -541,7 +541,8 @@ export class PositionWatcher {
 
 }
 
+// 잔고 pdno엔 ETN의 Q 접두어가 없으므로 문자열 그대로 비교하면 안 된다(kis/stock-code.ts).
 function getHolding(holdings: InquireBalanceItem[], code: string) {
-  const [ filtered ] = holdings.filter((item) => item.pdno === code && Number(item.hldg_qty) > 0);
+  const [ filtered ] = holdings.filter((item) => isSameStockCode(item.pdno, code) && Number(item.hldg_qty) > 0);
   return filtered;
 }
