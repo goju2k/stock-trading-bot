@@ -1,0 +1,37 @@
+# strategy-lab
+
+trading-server 전략 연구용 오프라인 분석 도구. 서버 코드와 무관하고 배포되지 않는다.
+입력은 전부 DB에서 뽑은 CSV이고, 데이터 파일은 커밋하지 않는다(.gitignore).
+
+## 데이터 뽑기
+
+```bash
+tools/strategy-lab/export.sh 2026-10-05 2026-10-30            # 이 폴더에 CSV 생성
+tools/strategy-lab/export.sh 2026-09-01 2026-10-02 tools/strategy-lab/data-sep   # 다른 폴더로
+```
+
+volume_rank 매수만 대상이다. 각 파일의 열은 export.sh 머리 주석에 있다.
+- `bars.csv`(minute_bars)는 2026-11-04부터 매일 15:40에 수집된다. 9/1~10/30은 백필해 두었다.
+- `scanSnapshot`(순위표 행)은 2026-10-05부터 있고, `position_price_ticks`도 같은 날부터 있다.
+
+## 스크립트
+
+- `sim.js`: 틱 경로에 매도 규칙을 다시 적용하는 시뮬레이터. 현재 규칙(BASE)으로 실제 청산 사유를 재현하는지 먼저 확인한다(10/6~10/30: 208건 중 196건 일치).
+  - 틱은 매도 순간에 끝난다. 그래서 실제보다 오래 보유하는 규칙의 결과는 censored로 표시하고 실제 손익으로 채운다.
+- `survivors.js`, `variants.js`, `robust.js`: 매도 규칙 변형 비교. 전반/후반, 일자별 일관성을 함께 본다.
+- `entry_features.py [폴더]`: 매수 시점 특징과 결과(60초 시점 매수가 이하 여부, 건당 수익률)를 3분위로 나눠, 기간 전반/후반을 함께 출력한다.
+  - 특징은 scanSnapshot 행과 매수 직전 분봉에서 뽑는다. 매수한 분의 봉은 쓰지 않는다(미래 정보 차단).
+  - 결과는 `entry_features.pkl`로 저장한다.
+- `entry_rules.py [폴더]`: 후보 필터의 일자별 일관성과 특징 간 상관을 본다.
+
+Python은 `C:\Program Files\Python312\python.exe`(pandas/numpy). 한글 출력이 깨지면 `PYTHONIOENCODING=utf-8`을 설정한다.
+
+## 원칙
+
+특징 하나를 볼 때마다 여러 구간을 비교하는 셈이라, 우연히 좋아 보이는 구간이 반드시 나온다.
+그래서 다음을 지킨다.
+1. 기간 전반·후반 모두에서 같은 방향인지 본다.
+2. 일자별로 몇 일이나 우세한지 본다.
+3. 가능하면 다른 기간(예: 9월)으로 다시 확인한다.
+
+이 세 가지를 통과한 것만 실험 후보로 올린다.
