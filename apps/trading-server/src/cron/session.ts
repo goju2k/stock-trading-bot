@@ -1,5 +1,5 @@
 import { getTradingConfig } from '../config/trading-config';
-import { fetchBusinessDay, inquireBalance, placeMarketOrder } from '../kis';
+import { codeCandidatesForBalanceCode, fetchBusinessDay, inquireBalance, placeMarketOrder, toBalanceCode } from '../kis';
 import { getKisEnvConfig } from '../kis/env';
 import { nowHHMMSS, todayDateOnly, todayYYYYMMDD } from '../lib/date';
 import { getPrisma } from '../lib/prisma';
@@ -61,6 +61,7 @@ async function liquidateStalePositions(): Promise<number | undefined> {
     const { holdings, summary } = await inquireBalance();
     const availableCash = Number(summary?.prvs_rcdl_excc_amt) || 0;
     const liveHoldings = holdings.filter((h) => Number(h.hldg_qty) > 0);
+    // 잔고 pdno엔 ETN의 Q 접두어가 없다 - DB 코드와 비교할 땐 toBalanceCode()로 맞춘다.
     const liveCodes = new Set(liveHoldings.map((h) => h.pdno));
 
     let estimatedProceeds = 0;
@@ -88,7 +89,7 @@ async function liquidateStalePositions(): Promise<number | undefined> {
       // 상태 필터 없이 최신 건 하나를 찾는다 - 이미 done/error로(잘못) 기록돼 있어도 이번
       // 정리 결과로 덮어써야 하므로 notIn 필터를 걸지 않는다.
       const watcher = await prisma.positionWatcher.findFirst({
-        where: { code: holding.pdno },
+        where: { code: { in: codeCandidatesForBalanceCode(holding.pdno) } },
         include: { order: true },
         orderBy: { id: 'desc' },
       });
@@ -106,7 +107,7 @@ async function liquidateStalePositions(): Promise<number | undefined> {
       await logTradeEvent({
         sessionId: watcher?.order.sessionId ?? null,
         type: 'forced_liquidation',
-        code: holding.pdno,
+        code: watcher?.code ?? holding.pdno,
         name: watcher?.order.name ?? holding.prdt_name,
         message: '익일 잔여 포지션 정리',
         payload: { qty: holding.hldg_qty, price, pnl },
@@ -117,7 +118,7 @@ async function liquidateStalePositions(): Promise<number | undefined> {
     // 2) DB엔 미종료로 남아있는데 실제 잔고엔 없는(이미 다른 경로로 사라진) 건 - 매도 없이
     //    done으로 현행화만 한다.
     const staleWatchers = await prisma.positionWatcher.findMany({ where: { state: { notIn: [ 'done', 'error' ] } } });
-    const reconciledCodes = staleWatchers.filter((w) => !liveCodes.has(w.code));
+    const reconciledCodes = staleWatchers.filter((w) => !liveCodes.has(toBalanceCode(w.code)));
     await Promise.all(reconciledCodes.map((w) => prisma.positionWatcher.update({
       where: { id: w.id },
       data: { state: 'done', stateMessage: '(정리) 실보유 없음 확인', closedAt: new Date() },

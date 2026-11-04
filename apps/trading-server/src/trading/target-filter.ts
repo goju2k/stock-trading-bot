@@ -1,5 +1,6 @@
 import { TradingConfig } from '@prisma/client';
 
+import { isEtnCode } from '../kis/stock-code';
 import { VolumeRankItem } from '../kis/types';
 
 // vi-scanner.ts의 MAX_VI_DPRT_PERCENT와 같은 이유의 상한선 - 상한가(전일대비 +30%)에
@@ -12,6 +13,11 @@ const MAX_UP_RATING_PERCENT = 17;
 
 // 기존 services/trading/src/pages/main/hooks/is-target-row.tsx 포팅.
 export function isTargetRow(item: VolumeRankItem, config: Pick<TradingConfig, 'targetUpRating' | 'targetIncreaseRate'>) {
+  // ETN(Q코드)은 매수 대상에서 뺀다(2026-11-04) - 순위에 잡히는 건 대부분 레버리지/인버스
+  // 원자재·지수 선물 ETN이라, 개별 종목에 돈이 몰리는 걸 잡는 이 전략의 전제와 맞지 않는다.
+  if (isEtnCode(item.mksc_shrn_iscd)) {
+    return false;
+  }
   const per = Number(item.prdy_ctrt);
   const inc = Number(item.vol_inrt);
   // 2026-08-13: 전일대비 상승률은 targetUpRating(7%) "이상"으로 포함시킨다(> -> >=) -
