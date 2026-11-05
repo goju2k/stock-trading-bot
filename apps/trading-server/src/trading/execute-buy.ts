@@ -178,7 +178,7 @@ export async function executeBuy({ sessionId, config, code, name, price, sourceS
     });
 
     const settings = resolvePositionSettings(config);
-    const watcher = await PositionWatcher.start(sessionId, order.id, code, name, sourceStrategy, settings, order.orderedAt, (w) => TradingRuntime.remove(w.code));
+    const watcher = await PositionWatcher.start(sessionId, order.id, code, name, sourceStrategy, settings, order.orderedAt, qty, (w) => TradingRuntime.remove(w.code));
     TradingRuntime.add(watcher);
 
     attachHeadline(order.id, code, name);
