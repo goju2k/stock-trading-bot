@@ -1,3 +1,5 @@
+import { TradingConfig } from '@prisma/client';
+
 import { getTradingConfig } from '../config/trading-config';
 import { codeCandidatesForBalanceCode, fetchBusinessDay, inquireBalance, placeMarketOrder, toBalanceCode } from '../kis';
 import { getKisEnvConfig } from '../kis/env';
@@ -9,7 +11,6 @@ import {
   isScannerRunning,
   logTradeEvent,
   resumeOpenWatchers,
-  startForeignInstitutionCache,
   startGapScanner,
   startMarketConditionCache,
   startScanner,
@@ -27,12 +28,18 @@ import {
 // 중인 포지션은 평소대로 BalancePoller/PositionWatcher가 계속 관리하다가 15:15에 함께 정리된다.
 export const NEW_ENTRY_CUTOFF_HHMMSS = '143000';
 
-function startAllScanners(sessionId: number) {
-  startForeignInstitutionCache();
+// 2026-11-05: 쓰지 않는 루프는 띄우지 않는다. vi/gap 스캐너는 꺼져 있어도 3~5초마다 깨어나 설정을
+// DB에서 읽고 있었고, 외국인/기관 순매수 캐시는 매수 조건(requireForeignInstitutionNetBuy)이 꺼져
+// 있는데도 5분마다 paper로 KIS를 조회했다(paper 레이트리밋 1건/초를 주문/잔고 조회와 나눠 씀).
+// - vi/gap: 세션 시작(또는 재시작 복구) 시점 설정이 켜져 있을 때만 띄운다. 장중에 켜면 다음 세션부터
+//   반영된다. 둘 다 market-condition(코스피 등락 체크, 현재 비활성)의 isMarketBullish()가 true여야 사므로
+//   다시 쓰려면 그것도 같이 켜야 한다.
+// - 외국인/기관 캐시: scanner.ts가 requireForeignInstitutionNetBuy가 켜진 틱에서 필요할 때 띄운다.
+function startAllScanners(sessionId: number, config: TradingConfig) {
   startMarketConditionCache();
   startScanner(sessionId);
-  startViScanner(sessionId);
-  startGapScanner(sessionId);
+  if (config.viStrategyEnabled) startViScanner(sessionId);
+  if (config.gapStrategyEnabled) startGapScanner(sessionId);
 }
 
 function stopAllScanners() {
@@ -175,7 +182,7 @@ export async function openTodaySession() {
   if (isBusinessDay) {
     const config = await getTradingConfig();
     if (config.autoTradingEnabled) {
-      startAllScanners(session.id);
+      startAllScanners(session.id, config);
     } else {
       console.log('[cron] autoTradingEnabled=false - scanners not started');
     }
@@ -433,7 +440,7 @@ export async function resumeTodaySessionIfNeeded() {
   // 재시작으로 무력화하지 않도록 같은 시각 기준을 여기서도 확인한다.
   const config = await getTradingConfig();
   if (config.autoTradingEnabled && !isScannerRunning() && !session.liquidationAt && nowHHMMSS() < NEW_ENTRY_CUTOFF_HHMMSS) {
-    startAllScanners(session.id);
+    startAllScanners(session.id, config);
     console.log(`[cron] scanners resumed for session ${session.id} after restart`);
   }
 }
