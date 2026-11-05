@@ -1,6 +1,6 @@
 import { Prisma, TradingConfig } from '@prisma/client';
 
-import { assignArm, parseExperiment, toExitParams } from './experiment';
+import { ExitParams, assignArm, parseExperiment, toExitParams } from './experiment';
 import { classifyHeadline } from './headline-keywords';
 import { logTradeEvent } from './log-trade-event';
 import { getMarketTickDelta } from './market-condition';
@@ -85,6 +85,10 @@ async function attachHeadline(orderId: number, code: string, name?: string) {
 // 무작위로 뽑아 그 그룹의 매도 파라미터를 덮어쓴다(trading/experiment.ts). 실험 정의가 깨져 있으면
 // 매수를 막지 않고 실험 없이(현행 규칙) 진행한다 - 설정 API에서 이미 검증하므로 정상적으론 안 생긴다.
 function resolvePositionSettings(config: TradingConfig): PositionSettings {
+  // 본전스탑 기본값(TradingConfig.breakevenAtPct/LockPct, 2026-11-05) - 실험이 없어도 적용된다.
+  const defaultExitParams: ExitParams | null = config.breakevenAtPct === null
+    ? null
+    : { breakevenAtPct: config.breakevenAtPct, breakevenLockPct: config.breakevenLockPct ?? undefined };
   const base: PositionSettings = {
     highPercentage: config.highPercentage,
     lowPercentage: config.lowPercentage,
@@ -93,7 +97,7 @@ function resolvePositionSettings(config: TradingConfig): PositionSettings {
     cut60sEnabled: config.cut60sEnabled,
     experimentKey: null,
     experimentArm: null,
-    exitParams: null,
+    exitParams: defaultExitParams,
   };
 
   let experiment;
@@ -115,8 +119,13 @@ function resolvePositionSettings(config: TradingConfig): PositionSettings {
     cut60sEnabled: cut60sEnabled ?? base.cut60sEnabled,
     experimentKey: experiment.key,
     experimentArm: arm.name,
-    exitParams: toExitParams(arm.exit),
+    // 그룹이 준 값이 기본값보다 우선(키가 없는 항목은 기본값 유지).
+    exitParams: { ...defaultExitParams, ...stripUndefined(toExitParams(arm.exit)) },
   };
+}
+
+function stripUndefined(params: ExitParams): ExitParams {
+  return Object.fromEntries(Object.entries(params).filter(([ , value ]) => value !== undefined)) as ExitParams;
 }
 
 // 매수 주문 실행 + Order/TradeEvent 기록 + PositionWatcher 기동. scanner.ts(거래대금순위)와

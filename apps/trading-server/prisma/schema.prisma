@@ -61,6 +61,10 @@ model TradingConfig {
   entryStartHhmm     Int      @default(910)
   // 매도 규칙 A/B 실험 정의(trading/experiment.ts, 2026-11-04). null이면 실험 없음(기본).
   experiment         Json?
+  // 본전스탑 기본값(2026-11-05) - 고점이 진입가 +breakevenAtPct%를 넘긴 뒤 진입가 +breakevenLockPct%
+  // 이하로 내려오면 정리(position-watcher 'breakeven'). null이면 끔. A/B 실험 그룹 값이 있으면 그게 우선.
+  breakevenAtPct     Float?
+  breakevenLockPct   Float?
   // 1건당 매수금액의 절대 상한선 (설정 실수로 몰빵하는 걸 막는 안전장치일 뿐, 평소엔
   // orderAmtPercent/startingCash 계산값이 이보다 작아서 이 값에 안 걸린다).
   maxOrderAmt        Int      @default(1000000)
