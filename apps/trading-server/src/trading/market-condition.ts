@@ -87,7 +87,16 @@ async function refresh() {
   }
 }
 
+// 2026-11-05 비활성화: 이 캐시를 매매 조건으로 쓰는 건 vi/gap 스캐너뿐인데 둘 다 꺼져 있고
+// (scanner.ts는 2026-08-13에 게이트 제거), 남은 용도는 회고용 kospiDelta 스냅샷과 디스코드
+// 중단/재개 알림뿐이었다. 그런데 1분마다 paper 계정으로 지수를 조회해서(paper 레이트리밋 1건/초)
+// 주문·잔고 조회와 같은 큐를 두고 경쟁한다. 그래서 조회 자체를 끈다. 다시 켜면 vi/gap
+// 스캐너의 isMarketBullish() 게이트도 같이 살아난다. 꺼져 있으면 bullish=false라
+// vi/gap을 켜도 매수하지 않는다. Order.kospiDeltaAtBuy / PositionWatcher.kospiDeltaAtSell은 null로 남는다.
+const MARKET_CONDITION_ENABLED = false;
+
 export function startMarketConditionCache() {
+  if (!MARKET_CONDITION_ENABLED) return;
   if (timer) return;
   const loop = async () => {
     await refresh();
