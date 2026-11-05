@@ -32,6 +32,9 @@ export interface ResumeRow {
   profitSince: Date | null;
   priceAt60s: unknown;
   firstTickPrice: unknown;
+  sellPrice: unknown;
+  sellQty: number | null;
+  pnl: number | null;
 }
 
 // 매수 시점에 TradingConfig에서 스냅샷해서 PositionWatcher 행에 고정하는 값들 - 도중에 설정이
@@ -81,6 +84,25 @@ const CUT_60S_MAX_DELAY_MS = 2 * 60 * 1000;
 // 보유 종목 수 x 초당 1회 insert를 피하기 위함. 재시작시 최대 이 시간만큼의 경로가 빠질 수 있다.
 const PRICE_TICK_FLUSH_MS = 10 * 1000;
 
+// 시장가 매수가 나눠서 체결되면(모의투자에서 실제로 발생 - 2026-11-05 227540은 50주 중 60초
+// 시점에 13주만, 369370은 362주 중 53주만 잔고에 있었다) 매도 판단 순간 보이는 수량만 팔리고,
+// 그 뒤 들어온 나머지는 sell_waiting이 "잔고가 0이 되길" 기다리는 동안 15:15까지 손절/익절 없이
+// 방치됐다(10/6~10/30에도 214건 중 5건). 그래서 sell_waiting 중에도 주문가능수량(ord_psbl_qty,
+// 이미 걸린 매도분은 빠진 수량)이 남아 있으면 같은 사유로 잔량을 판다. 매도 수량은 항상
+// "매수 주문 수량 - 이미 매도 주문한 수량"을 넘지 않게 잘라서, 응답 지연 등으로 오판해도 산 것보다
+// 많이 팔 수는 없다. 매도 주문 직후엔 잔고 반영이 늦을 수 있어 직전 매도 후 REMAINDER_SELL_GAP_MS가
+// 지나야 다시 보고, MAX_REMAINDER_SELLS번까지만 시도한다.
+const REMAINDER_SELL_GAP_MS = 5 * 1000;
+const MAX_REMAINDER_SELLS = 5;
+
+// sell_waiting 중 추가로 팔아야 할 잔량. ordPsblQty가 없거나 숫자가 아니면 0(예전 동작 유지).
+export function remainderToSell(ordPsblQty: string | undefined, orderQty: number, soldQty: number) {
+  if (ordPsblQty === undefined || ordPsblQty === '') return 0;
+  const orderable = Number(ordPsblQty);
+  if (!Number.isFinite(orderable) || orderQty <= 0) return 0;
+  return Math.max(0, Math.min(orderable, orderQty - soldQty));
+}
+
 // 기존 shared/states/global/.../trading-strategy.ts(TradingStrategy) +
 // services/trading/src/trading-strategy/sell-by-percent.ts(SellByPercent) 포팅.
 // 구현체가 하나뿐이라 별도 추상 베이스클래스로 안 나누고 하나로 합쳤다.
@@ -123,6 +145,23 @@ export class PositionWatcher {
 
   // 매수 주문 시각(Order.orderedAt) - priceAt60s(매수 60초 뒤 관측가) 카운트 기준점.
   readonly orderedAt: Date;
+
+  // 매수 주문 수량(Order.qty) - 부분체결 잔량 매도의 상한(REMAINDER_SELL_GAP_MS 참고).
+  readonly orderQty: number;
+
+  // 지금까지 낸 매도 주문 누적(여러 번 나눠 팔 수 있다) - sellQty/pnl/sellPrice(가중평균)로 영속화하고
+  // resume()에서 복구한다. 예전엔 매도마다 덮어써서 앞서 판 부분의 손익이 사라졌다.
+  private soldQty = 0;
+
+  private soldAmt = 0;
+
+  private realizedPnl = 0;
+
+  private lastSellAt = 0;
+
+  private remainderSells = 0;
+
+  private sellingRemainder = false;
 
   state: PositionState = 'checking';
 
@@ -178,7 +217,7 @@ export class PositionWatcher {
 
   private activeListener?: BalanceListener;
 
-  private constructor(id: number, sessionId: number, orderId: number, code: string, name: string | null, sourceStrategy: string, settings: PositionSettings, orderedAt: Date, onDone?: OnDone) {
+  private constructor(id: number, sessionId: number, orderId: number, code: string, name: string | null, sourceStrategy: string, settings: PositionSettings, orderedAt: Date, orderQty: number, onDone?: OnDone) {
     this.id = id;
     this.sessionId = sessionId;
     this.orderId = orderId;
@@ -192,21 +231,22 @@ export class PositionWatcher {
     this.cut60sEnabled = settings.cut60sEnabled;
     this.exitParams = settings.exitParams ?? {};
     this.orderedAt = orderedAt;
+    this.orderQty = orderQty;
     this.onDone = onDone;
   }
 
   // 신규 매수 직후 호출 (scanner.ts). 매수 시점의 %/전략을 스냅샷으로 저장해서 도중에
   // 설정이 바뀌거나 서버가 재시작돼도 이 포지션은 원래 기준 그대로 동작한다.
-  static async start(sessionId: number, orderId: number, code: string, name: string | null | undefined, sourceStrategy: string, settings: PositionSettings, orderedAt: Date, onDone?: OnDone) {
+  static async start(sessionId: number, orderId: number, code: string, name: string | null | undefined, sourceStrategy: string, settings: PositionSettings, orderedAt: Date, orderQty: number, onDone?: OnDone) {
     const { exitParams, ...columns } = settings;
     const row = await getPrisma().positionWatcher.create({ data: { orderId, code, ...columns, exitParams: exitParams ?? undefined, state: 'checking' } });
-    const watcher = new PositionWatcher(row.id, sessionId, orderId, code, name ?? null, sourceStrategy, settings, orderedAt, onDone);
+    const watcher = new PositionWatcher(row.id, sessionId, orderId, code, name ?? null, sourceStrategy, settings, orderedAt, orderQty, onDone);
     watcher.checking();
     return watcher;
   }
 
   // 서버 재시작 후 미종료 watcher 복구 (runtime.ts)
-  static resume(row: ResumeRow, sessionId: number, name: string | null, sourceStrategy: string, orderedAt: Date, onDone?: OnDone) {
+  static resume(row: ResumeRow, sessionId: number, name: string | null, sourceStrategy: string, orderedAt: Date, orderQty: number, onDone?: OnDone) {
     const settings: PositionSettings = {
       highPercentage: row.highPercentage,
       lowPercentage: row.lowPercentage,
@@ -217,7 +257,10 @@ export class PositionWatcher {
       experimentArm: row.experimentArm,
       exitParams: (row.exitParams as ExitParams | null) ?? null,
     };
-    const watcher = new PositionWatcher(row.id, sessionId, row.orderId, row.code, name, sourceStrategy, settings, orderedAt, onDone);
+    const watcher = new PositionWatcher(row.id, sessionId, row.orderId, row.code, name, sourceStrategy, settings, orderedAt, orderQty, onDone);
+    watcher.soldQty = row.sellQty ?? 0;
+    watcher.realizedPnl = row.pnl ?? 0;
+    watcher.soldAmt = row.sellPrice ? Number(row.sellPrice) * watcher.soldQty : 0;
     watcher.sellAmtHigh = row.sellAmtHigh ? Number(row.sellAmtHigh) : 0;
     watcher.sellAmtLow = row.sellAmtLow ? Number(row.sellAmtLow) : 0;
     watcher.peakPrice = row.peakPrice ? Number(row.peakPrice) : 0;
@@ -258,9 +301,19 @@ export class PositionWatcher {
       return;
     }
 
+    // 이미 매도 주문이 걸린 수량(sell_waiting 중 체결 대기분)은 빼고 판다. 주문가능수량이 응답에
+    // 없으면 예전처럼 보유수량 전체. 팔 게 없으면(전부 매도 체결 대기 중) 체결만 기다린다.
+    const qtyToSell = current.ord_psbl_qty !== undefined && current.ord_psbl_qty !== '' && Number.isFinite(Number(current.ord_psbl_qty))
+      ? Number(current.ord_psbl_qty)
+      : Number(current.hldg_qty);
+    if (qtyToSell <= 0) {
+      this.sellWaiting();
+      return;
+    }
+
     let res;
     try {
-      res = await placeMarketOrder({ buy: false, code: this.code, qty: current.hldg_qty });
+      res = await placeMarketOrder({ buy: false, code: this.code, qty: String(qtyToSell) });
     } catch (error) {
       await this.fail(`강제청산 매도 예외\n${(error as Error).message}`);
       return;
@@ -274,9 +327,8 @@ export class PositionWatcher {
     // 바로 영속화한다 - 예전엔 이걸 안 남겨서(qty만 기록) 강제청산 손익이 리포트에서 통째로
     // 빠지는 버그가 있었다(2026-08-05 발견).
     const price = Number(current.prpr);
-    const sellQty = Number(current.hldg_qty);
-    const pnl = Math.round((price - Number(current.pchs_avg_pric)) * sellQty);
-    await this.persist({ sellPrice: price, sellQty, pnl, kospiDeltaAtSell: getMarketTickDelta() });
+    const sellQty = qtyToSell;
+    const pnl = await this.recordSell(price, sellQty, Number(current.pchs_avg_pric));
 
     // 오늘 누적 손익을 매도 메시지에 같이 보여준다(2026-08-27, 보는 재미를 위한 요청) -
     // notify:false로 15:15 일괄청산에서 호출될 때도 계산 자체는 하지만(가벼운 집계 쿼리라
@@ -531,8 +583,7 @@ export class PositionWatcher {
       // 실현손익 = (매도가 - 실제 매입평균가) * 수량. Order.buyPrice(매수 시점 참고가/VI발동가)가
       // 아니라 KIS 잔고의 실시간 매입평균가(pchs_avg_pric)로 계산해야 정확하다 - 변동성 장에서는
       // 시장가 체결가가 참고가와 다를 수 있다(watchForSell 상단 comment 참고).
-      const pnl = Math.round((price - Number(current.pchs_avg_pric)) * Number(qty));
-      await this.persist({ sellPrice: price, sellQty: Number(qty), pnl, kospiDeltaAtSell: getMarketTickDelta() });
+      const pnl = await this.recordSell(price, Number(qty), Number(current.pchs_avg_pric));
 
       // 오늘 누적 손익을 매도 메시지에 같이 보여준다(2026-08-27, 보는 재미를 위한 요청) - 방금
       // persist한 이 건의 pnl도 이미 DB에 반영된 뒤라 합계에 포함된다.
@@ -551,13 +602,57 @@ export class PositionWatcher {
     this.persist({ state: 'sell_waiting', stateMessage: this.stateMessage });
 
     const listener: BalanceListener = async (holdings) => {
-      if (!getHolding(holdings, this.code)) {
+      const holding = getHolding(holdings, this.code);
+      if (!holding) {
         BalancePoller.removeListener(listener);
         await this.done('(종료) 판매완료');
+        return;
       }
+      await this.sellRemainder(holding);
     };
     this.activeListener = listener;
     BalancePoller.addListener(listener);
+  }
+
+  // 부분체결로 늦게 들어온 매수 잔량을 같은 매도 사유로 판다(REMAINDER_SELL_GAP_MS 주석 참고).
+  // 실패해도 fail()로 끝내지 않는다 - 이미 낸 매도는 유효하고, 다음 틱에 다시 시도하거나 15:15
+  // 강제청산이 남은 수량을 정리한다.
+  private async sellRemainder(holding: InquireBalanceItem) {
+    if (this.sellingRemainder || this.remainderSells >= MAX_REMAINDER_SELLS) return;
+    if (Date.now() - this.lastSellAt < REMAINDER_SELL_GAP_MS) return;
+    const qty = remainderToSell(holding.ord_psbl_qty, this.orderQty, this.soldQty);
+    if (qty <= 0) return;
+
+    this.sellingRemainder = true;
+    this.remainderSells += 1;
+    try {
+      const res = await placeMarketOrder({ buy: false, code: this.code, qty: String(qty) });
+      if (res.rt_cd !== '0') {
+        console.error(`[position-watcher:${this.code}] remainder sell rejected: ${res.msg1}`);
+        this.lastSellAt = Date.now();
+        return;
+      }
+      const price = Number(holding.prpr);
+      const pnl = await this.recordSell(price, qty, Number(holding.pchs_avg_pric));
+      const cumulativePnl = await getRealizedPnlToday(this.sessionId);
+      await logTradeEvent({ sessionId: this.sessionId, type: 'sell_executed', code: this.code, name: this.name, message: `매도 체결(${this.sourceStrategy}) (${this.highOrLow || '-'}, 부분체결 잔량) ${qty}주 @ ${price}원 (손익 ${pnl}원)\n오늘 누적손익: ${cumulativePnl.toLocaleString('ko-KR')}원`, payload: { qty, price, pnl, remainder: true } });
+    } catch (error) {
+      console.error(`[position-watcher:${this.code}] remainder sell failed`, error);
+      this.lastSellAt = Date.now();
+    } finally {
+      this.sellingRemainder = false;
+    }
+  }
+
+  // 매도 주문 1건을 누적 기록하고 이번 건의 손익을 돌려준다. sellPrice는 누적 가중평균.
+  private async recordSell(price: number, qty: number, avgCost: number) {
+    const pnl = Math.round((price - avgCost) * qty);
+    this.soldQty += qty;
+    this.soldAmt += price * qty;
+    this.realizedPnl += pnl;
+    this.lastSellAt = Date.now();
+    await this.persist({ sellPrice: Math.round(this.soldAmt / this.soldQty), sellQty: this.soldQty, pnl: this.realizedPnl, kospiDeltaAtSell: getMarketTickDelta() });
+    return pnl;
   }
 
   private async done(message: string) {
