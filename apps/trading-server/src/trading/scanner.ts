@@ -1,5 +1,5 @@
 import { executeBuy } from './execute-buy';
-import { isForeignInstitutionNetBuy } from './foreign-institution-cache';
+import { isForeignInstitutionNetBuy, startForeignInstitutionCache } from './foreign-institution-cache';
 import { recordScanCandidates } from './scan-candidates';
 import { getOrderedCodesToday } from './session-orders';
 import { isTargetRow } from './target-filter';
@@ -44,6 +44,12 @@ async function tick(sessionId: number) {
   const session = await prisma.tradingSession.findUnique({ where: { id: sessionId } });
   if (!session) {
     return config;
+  }
+
+  // 외국인/기관 순매수 조건이 켜져 있을 때만 그 캐시를 띄운다(이미 돌고 있으면 no-op). 막 띄운
+  // 직후 첫 조회가 끝나기 전 틱에선 캐시가 비어 있어 이 조건을 통과하는 후보가 없다.
+  if (config.requireForeignInstitutionNetBuy) {
+    startForeignInstitutionCache();
   }
 
   const passed = new Set(session.passedCodes);
