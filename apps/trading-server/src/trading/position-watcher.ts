@@ -91,9 +91,12 @@ const PRICE_TICK_FLUSH_MS = 10 * 1000;
 // 이미 걸린 매도분은 빠진 수량)이 남아 있으면 같은 사유로 잔량을 판다. 매도 수량은 항상
 // "매수 주문 수량 - 이미 매도 주문한 수량"을 넘지 않게 잘라서, 응답 지연 등으로 오판해도 산 것보다
 // 많이 팔 수는 없다. 매도 주문 직후엔 잔고 반영이 늦을 수 있어 직전 매도 후 REMAINDER_SELL_GAP_MS가
-// 지나야 다시 보고, MAX_REMAINDER_SELLS번까지만 시도한다.
+// 지나야 다시 본다. 시도 횟수엔 상한을 두지 않는다(2026-11-24 450910: 90주가 1~10주씩 6분에 걸쳐
+// 들어오는 동안 "최대 5회" 상한에 걸려 남은 52주가 15:15까지 방치됐다) - 산 수량 상한이 있어 몇 번을
+// 시도해도 과매도는 없다. 대신 주문이 연속으로 MAX_CONSECUTIVE_REMAINDER_FAILURES번 거부/실패하면 멈추고
+// 15:15 강제청산에 맡긴다(같은 거부를 5초마다 계속 반복하지 않도록).
 const REMAINDER_SELL_GAP_MS = 5 * 1000;
-const MAX_REMAINDER_SELLS = 5;
+const MAX_CONSECUTIVE_REMAINDER_FAILURES = 5;
 
 // sell_waiting 중 추가로 팔아야 할 잔량. ordPsblQty가 없거나 숫자가 아니면 0(예전 동작 유지).
 export function remainderToSell(ordPsblQty: string | undefined, orderQty: number, soldQty: number) {
@@ -159,7 +162,7 @@ export class PositionWatcher {
 
   private lastSellAt = 0;
 
-  private remainderSells = 0;
+  private remainderFailures = 0;
 
   private sellingRemainder = false;
 
@@ -618,26 +621,28 @@ export class PositionWatcher {
   // 실패해도 fail()로 끝내지 않는다 - 이미 낸 매도는 유효하고, 다음 틱에 다시 시도하거나 15:15
   // 강제청산이 남은 수량을 정리한다.
   private async sellRemainder(holding: InquireBalanceItem) {
-    if (this.sellingRemainder || this.remainderSells >= MAX_REMAINDER_SELLS) return;
+    if (this.sellingRemainder || this.remainderFailures >= MAX_CONSECUTIVE_REMAINDER_FAILURES) return;
     if (Date.now() - this.lastSellAt < REMAINDER_SELL_GAP_MS) return;
     const qty = remainderToSell(holding.ord_psbl_qty, this.orderQty, this.soldQty);
     if (qty <= 0) return;
 
     this.sellingRemainder = true;
-    this.remainderSells += 1;
     try {
       const res = await placeMarketOrder({ buy: false, code: this.code, qty: String(qty) });
       if (res.rt_cd !== '0') {
-        console.error(`[position-watcher:${this.code}] remainder sell rejected: ${res.msg1}`);
+        this.remainderFailures += 1;
+        console.error(`[position-watcher:${this.code}] remainder sell rejected (${this.remainderFailures}/${MAX_CONSECUTIVE_REMAINDER_FAILURES}): ${res.msg1}`);
         this.lastSellAt = Date.now();
         return;
       }
+      this.remainderFailures = 0;
       const price = Number(holding.prpr);
       const pnl = await this.recordSell(price, qty, Number(holding.pchs_avg_pric));
       const cumulativePnl = await getRealizedPnlToday(this.sessionId);
       await logTradeEvent({ sessionId: this.sessionId, type: 'sell_executed', code: this.code, name: this.name, message: `매도 체결(${this.sourceStrategy}) (${this.highOrLow || '-'}, 부분체결 잔량) ${qty}주 @ ${price}원 (손익 ${pnl}원)\n오늘 누적손익: ${cumulativePnl.toLocaleString('ko-KR')}원`, payload: { qty, price, pnl, remainder: true } });
     } catch (error) {
-      console.error(`[position-watcher:${this.code}] remainder sell failed`, error);
+      this.remainderFailures += 1;
+      console.error(`[position-watcher:${this.code}] remainder sell failed (${this.remainderFailures}/${MAX_CONSECUTIVE_REMAINDER_FAILURES})`, error);
       this.lastSellAt = Date.now();
     } finally {
       this.sellingRemainder = false;
