@@ -46,11 +46,11 @@ export function startTradingCron() {
   // session_start 로그가 7초 간격으로 두 번 찍힘). 5-55/5로 0을 빼서 완전히 겹치지 않게 한다.
   cron.schedule('5-55/5 9-14 * * 1-5', runSafely('ensureTodaySessionOpen', ensureTodaySessionOpen), { timezone: TIMEZONE });
 
-  // 14:30 평일 - 신규 매수(진입 스캐너)만 종료. 15:15 강제청산까지 시간이 얼마 안 남은 채로
+  // 14:00 평일(2026-11-25 14:30에서 당김, session.ts NEW_ENTRY_CUTOFF_HHMMSS 참고) - 신규 매수(진입 스캐너)만 종료. 15:15 강제청산까지 시간이 얼마 안 남은 채로
   // 매수하면 트레일링 익절/손절이 제대로 작동해볼 겨를도 없이 그냥 강제청산으로 끝나는 경우가
   // 잦다는 관찰(2026-08-21)에 따라 15:15보다 45분 앞서 진입만 먼저 끊는다. 보유 포지션 관리와
   // market-condition 회고용 데이터 수집은 계속된다(session.ts stopNewEntries() 참고).
-  cron.schedule('30 14 * * 1-5', runSafely('stopNewEntries', stopNewEntries), { timezone: TIMEZONE });
+  cron.schedule('0 14 * * 1-5', runSafely('stopNewEntries', stopNewEntries), { timezone: TIMEZONE });
 
   // 15:15 평일 - 정규장 마감(15:30) 15분 전 잔여 포지션 강제청산 시작. 기존 15:25(마감 5분 전)는
   // 100건 넘는 포지션을 청산하기엔(동시호가 구간 15:20-15:30까지 겹침) 너무 촉박했다
@@ -65,5 +65,5 @@ export function startTradingCron() {
   // 종가 단일가 봉까지 확정된 뒤에 받는다. real 자격증명/레이트리밋 큐를 쓰므로 paper 매매와 안 겹친다.
   cron.schedule('40 15 * * 1-5', runSafely('collectTodayMinuteBars', () => collectTodayMinuteBars(todayDateOnly())), { timezone: TIMEZONE });
 
-  console.log('[cron] trading schedule registered (09:00 start / 09:05~14:55 open catch-up / 14:30 new-entry cutoff / 15:15 liquidate / 15:30 close / 15:40 minute bars, Asia/Seoul)');
+  console.log('[cron] trading schedule registered (09:00 start / 09:05~14:55 open catch-up / 14:00 new-entry cutoff / 15:15 liquidate / 15:30 close / 15:40 minute bars, Asia/Seoul)');
 }

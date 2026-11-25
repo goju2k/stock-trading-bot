@@ -26,7 +26,34 @@ import {
 // 시간이 얼마 안 남은 상태로 매수하면 트레일링 익절/손절이 정상적으로 작동해볼 겨를도 없이
 // 그냥 강제청산으로 끝나는 경우가 잦다(2026-08-21 관찰) - 그래서 매수만 먼저 끊고, 이미 보유
 // 중인 포지션은 평소대로 BalancePoller/PositionWatcher가 계속 관리하다가 15:15에 함께 정리된다.
-export const NEW_ENTRY_CUTOFF_HHMMSS = '143000';
+// 2026-11-25 14:30 -> 14:00: 15:15 강제청산까지 간 포지션은 9~11월 모두 승률 18~33%, 건당 -0.7~-0.9%였고,
+// 분봉 재시뮬에서 14:00 이후 매수를 빼면 9/10/11월 6개 반기 모두 나았다(달마다 +2.6만/+3.7만/+4.7만,
+// 빠지는 매수 9~19건). 시간손절(20~120분)은 달마다 엇갈려서 대신 쓰지 않았다.
+export const NEW_ENTRY_CUTOFF_HHMMSS = '140000';
+
+// 익일 09:00 잔여 정리 결과를 전날 기록에 합친다(2026-11-25). 전날 15:15 강제청산은 58주 매도 주문을
+// sellQty=58로 기록했는데 41주가 장 마감까지 안 팔려서 다음 날 팔렸고, 예전엔 그 41주 기록으로 통째로
+// 덮어써서 전날 체결된 17주의 손익이 사라졌다. 실제 체결 내역은 저장하지 않으므로 근사한다: 전날 기록 중
+// 실제로 팔린 수량 = 기록 수량 - 지금 남은 수량, 그 부분의 손익은 기록 손익을 수량 비율로 나눠 쓴다.
+export function mergeStaleLiquidation(
+  prev: { sellQty: number | null; sellPrice: number | null; pnl: number | null; },
+  heldQty: number,
+  price: number,
+  pnl: number,
+) {
+  const prevQty = prev.sellQty ?? 0;
+  const filledBefore = Math.max(0, prevQty - heldQty);
+  if (filledBefore === 0 || prev.pnl === null || prev.sellPrice === null) {
+    return { sellQty: heldQty, sellPrice: price, pnl };
+  }
+  const prevPnl = Math.round(prev.pnl * (filledBefore / prevQty));
+  const sellQty = filledBefore + heldQty;
+  return {
+    sellQty,
+    sellPrice: Math.round((prev.sellPrice * filledBefore + price * heldQty) / sellQty),
+    pnl: prevPnl + pnl,
+  };
+}
 
 // 2026-11-05: 쓰지 않는 루프는 띄우지 않는다. vi/gap 스캐너는 꺼져 있어도 3~5초마다 깨어나 설정을
 // DB에서 읽고 있었고, 외국인/기관 순매수 캐시는 매수 조건(requireForeignInstitutionNetBuy)이 꺼져
@@ -104,9 +131,15 @@ async function liquidateStalePositions(): Promise<number | undefined> {
       const pnl = Math.round((price - Number(holding.pchs_avg_pric)) * Number(holding.hldg_qty));
 
       if (watcher) {
+        const merged = mergeStaleLiquidation(
+          { sellQty: watcher.sellQty, sellPrice: watcher.sellPrice === null ? null : Number(watcher.sellPrice), pnl: watcher.pnl },
+          Number(holding.hldg_qty),
+          price,
+          pnl,
+        );
         await prisma.positionWatcher.update({
           where: { id: watcher.id },
-          data: { state: 'done', stateMessage: '(정리) 익일 잔여 포지션 정리', sellPrice: price, sellQty: Number(holding.hldg_qty), pnl, closedAt: new Date() },
+          data: { state: 'done', stateMessage: '(정리) 익일 잔여 포지션 정리', ...merged, closedAt: new Date() },
         });
       }
 
@@ -217,7 +250,7 @@ export async function ensureTodaySessionOpen() {
   await openTodaySession();
 }
 
-// 14:30 평일 트리거. 신규 진입 스캐너(volume_rank/vi/gap)만 멈추고, market-condition/외국인
+// 14:00 평일 트리거(NEW_ENTRY_CUTOFF_HHMMSS 참고). 신규 진입 스캐너(volume_rank/vi/gap)만 멈추고, market-condition/외국인
 // 캐시는 그대로 둔다 - 15:15까지 남은 포지션의 kospiDeltaAtSell 등 회고용 데이터가 그 사이에도
 // 계속 신선하게 쌓이도록. 보유 포지션의 매도 로직 자체는 이 함수와 무관하게 평소대로 동작한다.
 export async function stopNewEntries() {
@@ -232,10 +265,10 @@ export async function stopNewEntries() {
   stopViScanner();
   stopGapScanner();
 
-  console.log('[cron] new entries stopped for today (14:30 cutoff)');
+  console.log('[cron] new entries stopped for today (14:00 cutoff)');
   await sendDiscordMessage({
     title: '🟡 신규 매수 종료',
-    description: '14:30 - 장마감까지 남은 시간이 얼마 없어 신규 매수를 종료합니다. 보유 포지션은 계속 관리됩니다.',
+    description: '14:00 - 장마감까지 남은 시간이 얼마 없어 신규 매수를 종료합니다. 보유 포지션은 계속 관리됩니다.',
     color: DISCORD_COLOR.yellow,
   });
 }
@@ -435,8 +468,8 @@ export async function resumeTodaySessionIfNeeded() {
 
   await resumeOpenWatchers(session.id);
 
-  // 14:30~15:15 사이(신규 진입은 끊겼지만 아직 강제청산 전) 재시작되는 경우, liquidationAt만
-  // 보면 아직 안 걸려있어서 스캐너를 도로 살려버린다 - stopNewEntries()의 14:30 컷오프를
+  // 14:00~15:15 사이(신규 진입은 끊겼지만 아직 강제청산 전) 재시작되는 경우, liquidationAt만
+  // 보면 아직 안 걸려있어서 스캐너를 도로 살려버린다 - stopNewEntries()의 14:00 컷오프를
   // 재시작으로 무력화하지 않도록 같은 시각 기준을 여기서도 확인한다.
   const config = await getTradingConfig();
   if (config.autoTradingEnabled && !isScannerRunning() && !session.liquidationAt && nowHHMMSS() < NEW_ENTRY_CUTOFF_HHMMSS) {
